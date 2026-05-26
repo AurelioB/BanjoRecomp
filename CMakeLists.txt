@@ -45,6 +45,47 @@ set(RT64_STATIC TRUE)
 set(RT64_SDL_WINDOW_VULKAN TRUE)
 add_compile_definitions(HLSL_CPU)
 
+if (CMAKE_SYSTEM_NAME MATCHES "Android")
+    option(BANJO_ANDROID_SHELL_ONLY "Build only a minimal Android native shell that does not require generated game sources." ON)
+    option(BANJO_ANDROID_RENDERER_STUB "Use a no-op renderer context for the first Android native startup milestone." ON)
+    option(BANJO_ANDROID_SDL_LIFECYCLE_PROBE "Build an SDLActivity-driven Android lifecycle probe instead of the legacy Java Activity probe." OFF)
+    option(BANJO_ANDROID_DEV_FULL_APK "Build dev-only full Android libmain.so with ROM-derived generated code allowed for local testing." OFF)
+    option(BANJO_ANDROID_VULKAN_SMOKE_PROBE "Compile the Android Vulkan smoke probe diagnostic into full Android builds." OFF)
+else()
+    option(BANJO_ANDROID_SHELL_ONLY "Build only a minimal Android native shell that does not require generated game sources." OFF)
+    option(BANJO_ANDROID_RENDERER_STUB "Use a no-op renderer context for the first Android native startup milestone." OFF)
+    option(BANJO_ANDROID_SDL_LIFECYCLE_PROBE "Build an SDLActivity-driven Android lifecycle probe instead of the legacy Java Activity probe." OFF)
+    option(BANJO_ANDROID_VULKAN_SMOKE_PROBE "Compile the Android Vulkan smoke probe diagnostic into full Android builds." OFF)
+endif()
+
+if (BANJO_ANDROID_SHELL_ONLY)
+    if (NOT CMAKE_SYSTEM_NAME MATCHES "Android")
+        message(FATAL_ERROR "BANJO_ANDROID_SHELL_ONLY is only supported for Android builds.")
+    endif()
+
+    find_package(SDL2 REQUIRED)
+
+    if (BANJO_ANDROID_SDL_LIFECYCLE_PROBE)
+        add_library(main SHARED
+            ${CMAKE_SOURCE_DIR}/src/android/sdl_lifecycle_probe.cpp
+        )
+        target_include_directories(main PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(main PRIVATE SDL2::SDL2 android log)
+    else()
+        add_library(BanjoAndroidShell SHARED
+            ${CMAKE_SOURCE_DIR}/src/android/android_shell.cpp
+        )
+        target_include_directories(BanjoAndroidShell PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(BanjoAndroidShell PRIVATE SDL2::SDL2 android log)
+    endif()
+
+    return()
+endif()
+
+if (BANJO_ANDROID_RENDERER_STUB)
+    add_compile_definitions(BANJO_ANDROID_RENDERER_STUB=1)
+endif()
+
 if (RECOMP_FLATPAK)
     add_compile_definitions(RECOMP_FLATPAK)
 endif()
@@ -136,8 +177,15 @@ add_custom_command(OUTPUT
                    DEPENDS ${CMAKE_SOURCE_DIR}/patches/patches.elf
 )
 
-# Main executable
-add_executable(BanjoRecompiled)
+# Main executable / Android SDLActivity shared library.
+if (CMAKE_SYSTEM_NAME MATCHES "Android" AND BANJO_ANDROID_DEV_FULL_APK)
+    add_library(main SHARED)
+    set(BANJO_RECOMP_TARGET main)
+    target_compile_definitions(main PRIVATE BANJO_ANDROID_DEV_FULL_APK=1)
+else()
+    add_executable(BanjoRecompiled)
+    set(BANJO_RECOMP_TARGET BanjoRecompiled)
+endif()
 
 set (SOURCES
     ${CMAKE_SOURCE_DIR}/src/main/launcher_animation.cpp
@@ -156,7 +204,7 @@ set (SOURCES
     ${CMAKE_SOURCE_DIR}/rsp/n_aspMain.cpp
 )
 
-target_include_directories(BanjoRecompiled PRIVATE
+target_include_directories(${BANJO_RECOMP_TARGET} PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty/sse2neon
@@ -180,16 +228,16 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.c ${CMAKE_CURRE
     DEPENDS ${CMAKE_SOURCE_DIR}/icons/app.png
 )
 
-target_sources(BanjoRecompiled PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.c)
+target_sources(${BANJO_RECOMP_TARGET} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.c)
 
 if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
-    target_compile_options(BanjoRecompiled PRIVATE
+    target_compile_options(${BANJO_RECOMP_TARGET} PRIVATE
         -march=nehalem
         -fno-strict-aliasing
         -fms-extensions
     )
 else()
-    target_compile_options(BanjoRecompiled PRIVATE
+    target_compile_options(${BANJO_RECOMP_TARGET} PRIVATE
         -fno-strict-aliasing
         -fms-extensions
     )
@@ -197,11 +245,11 @@ endif()
 
 if (MSVC)
     # Disable identical code folding, since this breaks mod function patching as multiple functions can get merged into one.
-    target_link_options(BanjoRecompiled PRIVATE /OPT:NOICF)
+    target_link_options(${BANJO_RECOMP_TARGET} PRIVATE /OPT:NOICF)
 elseif (APPLE)
     # Use a wrapper around ld64 that respects segprot's `max_prot` value in order
     # to make our executable memory writable (required for mod function patching)
-    target_link_options(BanjoRecompiled PRIVATE
+    target_link_options(${BANJO_RECOMP_TARGET} PRIVATE
         "-fuse-ld=${CMAKE_SOURCE_DIR}/.github/macos/ld64"
     )
 endif()
@@ -221,10 +269,10 @@ if (WIN32)
         URL https://github.com/libsdl-org/SDL/releases/download/release-${SDL2_VERSION}/SDL2-devel-${SDL2_VERSION}-VC.zip
     )
     FetchContent_MakeAvailable(sdl2)
-    target_include_directories(BanjoRecompiled PRIVATE
+    target_include_directories(${BANJO_RECOMP_TARGET} PRIVATE
         ${sdl2_SOURCE_DIR}/include
     )
-    target_link_directories(BanjoRecompiled PRIVATE
+    target_link_directories(${BANJO_RECOMP_TARGET} PRIVATE
         ${sdl2_SOURCE_DIR}/lib/x64
     )
 
@@ -237,7 +285,7 @@ if (WIN32)
             $<TARGET_FILE_DIR:BanjoRecompiled>)
 
     set_target_properties(
-        BanjoRecompiled
+        ${BANJO_RECOMP_TARGET}
         PROPERTIES
             LINK_FLAGS_DEBUG "/SUBSYSTEM:CONSOLE"
             LINK_FLAGS_RELEASE "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup"
@@ -245,19 +293,19 @@ if (WIN32)
             LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup"
     )
 
-    target_sources(BanjoRecompiled PRIVATE ${CMAKE_SOURCE_DIR}/icons/app.rc)
-    target_link_libraries(BanjoRecompiled PRIVATE SDL2 Winmm.lib)
+    target_sources(${BANJO_RECOMP_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/icons/app.rc)
+    target_link_libraries(${BANJO_RECOMP_TARGET} PRIVATE SDL2 Winmm.lib)
 endif()
 
 if (APPLE)
     find_package(SDL2 REQUIRED)
-    target_include_directories(BanjoRecompiled PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_include_directories(${BANJO_RECOMP_TARGET} PRIVATE ${SDL2_INCLUDE_DIRS})
 
     set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
     set(THREADS_PREFER_PTHREAD_FLAG TRUE)
     find_package(Threads REQUIRED)
 
-    target_link_libraries(BanjoRecompiled PRIVATE ${CMAKE_DL_LIBS} Threads::Threads SDL2::SDL2)
+    target_link_libraries(${BANJO_RECOMP_TARGET} PRIVATE ${CMAKE_DL_LIBS} Threads::Threads SDL2::SDL2)
 
     include(${CMAKE_SOURCE_DIR}/.github/macos/apple_bundle.cmake)
 endif()
@@ -272,15 +320,15 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     message(STATUS "SDL2_FOUND = ${SDL2_FOUND}")
     message(STATUS "SDL2_INCLUDE_DIRS = ${SDL2_INCLUDE_DIRS}")
 
-    target_include_directories(BanjoRecompiled PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_include_directories(${BANJO_RECOMP_TARGET} PRIVATE ${SDL2_INCLUDE_DIRS})
 
     message(STATUS "X11_FOUND = ${X11_FOUND}")
     message(STATUS "X11_Xrandr_FOUND = ${X11_Xrandr_FOUND}")
     message(STATUS "X11_INCLUDE_DIR = ${X11_INCLUDE_DIR}")
     message(STATUS "X11_LIBRARIES = ${X11_LIBRARIES}")
 
-    target_include_directories(BanjoRecompiled PRIVATE ${X11_INCLUDE_DIR} ${X11_Xrandr_INCLUDE_PATH})
-    target_link_libraries(BanjoRecompiled PRIVATE ${X11_LIBRARIES} ${X11_Xrandr_LIB})
+    target_include_directories(${BANJO_RECOMP_TARGET} PRIVATE ${X11_INCLUDE_DIR} ${X11_Xrandr_INCLUDE_PATH})
+    target_link_libraries(${BANJO_RECOMP_TARGET} PRIVATE ${X11_LIBRARIES} ${X11_Xrandr_LIB})
 
     find_package(Freetype REQUIRED)
 
@@ -289,13 +337,23 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     message(STATUS "FREETYPE_LIBRARIES = ${FREETYPE_LIBRARIES}")
 
     include_directories(${FREETYPE_LIBRARIES})
-    target_link_libraries(BanjoRecompiled PRIVATE ${FREETYPE_LIBRARIES} SDL2::SDL2)
+    target_link_libraries(${BANJO_RECOMP_TARGET} PRIVATE ${FREETYPE_LIBRARIES} SDL2::SDL2)
 
     set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
     set(THREADS_PREFER_PTHREAD_FLAG TRUE)
     find_package(Threads REQUIRED)
 
-    target_link_libraries(BanjoRecompiled PRIVATE "-latomic -static-libstdc++" ${CMAKE_DL_LIBS} Threads::Threads)
+    target_link_libraries(${BANJO_RECOMP_TARGET} PRIVATE "-latomic -static-libstdc++" ${CMAKE_DL_LIBS} Threads::Threads)
+endif()
+
+if (CMAKE_SYSTEM_NAME MATCHES "Android")
+    find_package(SDL2 REQUIRED)
+
+    add_compile_definitions("PLUME_SDL_VULKAN_ENABLED")
+    add_compile_definitions("RT64_SDL_WINDOW_VULKAN")
+
+    target_include_directories(${BANJO_RECOMP_TARGET} PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_link_libraries(${BANJO_RECOMP_TARGET} PRIVATE SDL2::SDL2 android log vulkan)
 endif()
 
 # TODO fix the rt64 CMake script so that this doesn't need to be duplicated here
@@ -322,7 +380,8 @@ else()
             set(SPIRVCROSS "DYLD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/spirv-cross/lib/arm64" "${PROJECT_SOURCE_DIR}/lib/rt64//src/contrib/spirv-cross/bin/x64/spirv-cross")
         endif()
     else()
-        if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+        # Android and other cross-builds run DXC on the build host, not the target.
+        if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
             set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/x64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxc-linux")
         else()
             set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/arm64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/arm64/dxc-linux")
@@ -335,7 +394,7 @@ set(RECOMP_FRONTEND_RT64_PATH ${CMAKE_SOURCE_DIR}/lib/rt64)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/lib/RecompFrontend)
 
-target_link_libraries(BanjoRecompiled PRIVATE
+target_link_libraries(${BANJO_RECOMP_TARGET} PRIVATE
     PatchesLib
     RecompiledFuncs
     recompui
@@ -365,8 +424,16 @@ foreach(NRM_FILE ${NRM_FILES})
     list(APPEND GENERATED_NRM_SOURCES ${OUT_C})
 endforeach()
 
-target_sources(BanjoRecompiled PRIVATE ${GENERATED_NRM_SOURCES})
+target_sources(${BANJO_RECOMP_TARGET} PRIVATE ${GENERATED_NRM_SOURCES})
 
-target_sources(BanjoRecompiled PRIVATE ${SOURCES})
+target_sources(${BANJO_RECOMP_TARGET} PRIVATE ${SOURCES})
 
-set_property(TARGET BanjoRecompiled PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+if (CMAKE_SYSTEM_NAME MATCHES "Android" AND BANJO_ANDROID_VULKAN_SMOKE_PROBE)
+    target_sources(${BANJO_RECOMP_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/src/android/vulkan_smoke_probe.cpp)
+endif()
+
+if (BANJO_ANDROID_RENDERER_STUB)
+    target_sources(${BANJO_RECOMP_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/src/android/null_renderer_context.cpp)
+endif()
+
+set_property(TARGET ${BANJO_RECOMP_TARGET} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
