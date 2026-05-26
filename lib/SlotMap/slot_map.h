@@ -48,7 +48,14 @@
 #else
 // Posix
 #include <stdlib.h>
-#define SLOT_MAP_ALLOC(sizeInBytes, alignment) aligned_alloc(alignment, sizeInBytes)
+static inline void* slot_map_posix_alloc(size_t sizeInBytes, size_t alignment) {
+    void* ptr = nullptr;
+    if (posix_memalign(&ptr, alignment, sizeInBytes) != 0) {
+        return nullptr;
+    }
+    return ptr;
+}
+#define SLOT_MAP_ALLOC(sizeInBytes, alignment) slot_map_posix_alloc(sizeInBytes, alignment)
 #define SLOT_MAP_FREE(ptr) free(ptr)
 #endif
 
