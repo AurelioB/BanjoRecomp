@@ -6,9 +6,15 @@
 #include <filesystem>
 #include <numeric>
 #include <stdexcept>
+#include <system_error>
 #include <cinttypes>
+#include <atomic>
+#include <mutex>
+#include <cstring>
 
+#if !defined(__ANDROID__)
 #include "nfd.h"
+#endif
 
 #include "ultramodern/ultra64.h"
 #include "ultramodern/ultramodern.hpp"
@@ -18,6 +24,7 @@
 #include "SDL.h"
 #else
 #include "SDL2/SDL.h"
+#if !defined(__ANDROID__)
 #include "SDL2/SDL_syswm.h"
 // Undefine x11 macros that get included by SDL_syswm.h.
 #undef None
@@ -26,6 +33,17 @@
 #undef ControlMask
 #undef Success
 #undef Always
+#endif
+#endif
+
+#if defined(__ANDROID__)
+#include <android/log.h>
+#include <jni.h>
+#include <SDL_events.h>
+#endif
+
+#if defined(BANJO_ANDROID_RENDERER_STUB)
+#include "../android/null_renderer_context.hpp"
 #endif
 
 #include "recompui/recompui.h"
@@ -63,6 +81,56 @@
 #endif
 
 #include "../../lib/rt64/src/contrib/stb/stb_image.h"
+
+#if defined(__ANDROID__)
+namespace {
+void push_android_mod_drop_events(JNIEnv* env, jobjectArray paths) {
+    if (paths == nullptr) {
+        return;
+    }
+
+    SDL_Event event{};
+    event.type = SDL_DROPBEGIN;
+    if (SDL_PushEvent(&event) < 0) {
+        return;
+    }
+
+    const jsize count = env->GetArrayLength(paths);
+    for (jsize i = 0; i < count; i++) {
+        jstring path_string = static_cast<jstring>(env->GetObjectArrayElement(paths, i));
+        if (path_string == nullptr) {
+            continue;
+        }
+
+        const char* path_chars = env->GetStringUTFChars(path_string, nullptr);
+        if (path_chars != nullptr) {
+            SDL_Event drop_event{};
+            drop_event.type = SDL_DROPFILE;
+            const size_t path_len = std::strlen(path_chars) + 1;
+            drop_event.drop.file = static_cast<char*>(SDL_malloc(path_len));
+            if (drop_event.drop.file != nullptr) {
+                std::memcpy(drop_event.drop.file, path_chars, path_len);
+                if (SDL_PushEvent(&drop_event) < 0) {
+                    SDL_free(drop_event.drop.file);
+                }
+            }
+            env->ReleaseStringUTFChars(path_string, path_chars);
+        }
+
+        env->DeleteLocalRef(path_string);
+    }
+
+    SDL_Event complete_event{};
+    complete_event.type = SDL_DROPCOMPLETE;
+    SDL_PushEvent(&complete_event);
+}
+} // namespace
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_banjorecomp_BanjoSDLActivity_nativeOnModsSelected(JNIEnv* env, jclass, jobjectArray paths) {
+    push_android_mod_drop_events(env, paths);
+}
+#endif
 
 const std::string version_string = "1.0.1";
 
@@ -164,6 +232,9 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
     flags |= SDL_WINDOW_METAL;
 #elif defined(RT64_SDL_WINDOW_VULKAN)
     flags |= SDL_WINDOW_VULKAN;
+#   if defined(__ANDROID__)
+    flags |= SDL_WINDOW_SHOWN;
+#   endif
 #endif
 
     window = SDL_CreateWindow("Banjo: Recompiled", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1600, 900,  flags);
@@ -172,16 +243,18 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
         exit_error("Failed to create window: %s\n", SDL_GetError());
     }
 
+#if !defined(__ANDROID__)
     SDL_SysWMinfo wmInfo;
     SDL_VERSION(&wmInfo.version);
     SDL_GetWindowWMInfo(window, &wmInfo);
+#endif
 
 #if defined(_WIN32)
     // There's a 50/50 chance to choose the icon where the smallest variant is either Banjo or Kazooie alone.
     bool choose_kazooie_icon = (rand() % 2 == 0);
     HICON new_icon = LoadIcon(GetModuleHandle(NULL), choose_kazooie_icon ? MAKEINTRESOURCE(APP_ICON_K) : MAKEINTRESOURCE(APP_ICON_B));
     SendMessage(wmInfo.info.win.window, WM_SETICON, ICON_SMALL2, (LPARAM)(new_icon));
-#elif defined(__linux__)
+#elif defined(__linux__) && !defined(__ANDROID__)
     SetImageAsIcon("icons/app.png", window);
 #endif
 
@@ -203,6 +276,10 @@ void update_gfx(void*) {
 
 static SDL_AudioCVT audio_convert;
 static SDL_AudioDeviceID audio_device = 0;
+#if defined(__ANDROID__)
+static std::atomic_bool android_app_audio_active{true};
+static std::mutex android_audio_device_mutex;
+#endif
 
 // Samples per channel per second.
 static uint32_t sample_rate = 48000;
@@ -220,7 +297,56 @@ static uint32_t discarded_output_frames;
 
 constexpr uint32_t bytes_per_frame = input_channels * sizeof(float);
 
+SDL_AudioSpec make_audio_spec(uint32_t freq) {
+    return SDL_AudioSpec{
+        .freq = static_cast<int>(freq),
+        .format = AUDIO_F32,
+        .channels = static_cast<Uint8>(output_channels),
+        .silence = 0, // calculated
+#if defined(__ANDROID__)
+        // Android's AudioTrack backend churns badly with the tiny desktop buffer; use a larger
+        // buffer to avoid repeated underrun/stop cycles during cutscenes and heavy frames.
+        .samples = 0x800,
+#else
+        .samples = 0x100, // Fairly small sample count to reduce the latency of internal buffering
+#endif
+        .padding = 0, // unused
+        .size = 0, // calculated
+        .callback = nullptr,
+        .userdata = nullptr
+    };
+}
+
+#if defined(__ANDROID__)
+SDL_AudioDeviceID open_android_audio_device_locked(uint32_t freq, const char* context) {
+    SDL_AudioSpec spec_desired = make_audio_spec(freq);
+    SDL_AudioDeviceID device = SDL_OpenAudioDevice(nullptr, false, &spec_desired, nullptr, 0);
+    if (device == 0) {
+        __android_log_print(ANDROID_LOG_ERROR, "BanjoRecomp", "Error %s Android audio device: %s", context, SDL_GetError());
+    }
+    return device;
+}
+
+void close_android_audio_device_locked() {
+    if (audio_device != 0) {
+        SDL_PauseAudioDevice(audio_device, 1);
+        SDL_ClearQueuedAudio(audio_device);
+        SDL_CloseAudioDevice(audio_device);
+        audio_device = 0;
+    }
+}
+#endif
+
 void queue_samples(int16_t* audio_data, size_t sample_count) {
+#if defined(__ANDROID__)
+    if (!android_app_audio_active.load(std::memory_order_acquire)) {
+        return;
+    }
+    std::lock_guard audio_lock{android_audio_device_mutex};
+    if (audio_device == 0) {
+        return;
+    }
+#endif
     // Buffer for holding the output of swapping the audio channels. This is reused across
     // calls to reduce runtime allocations.
     static std::vector<float> swap_buffer;
@@ -270,7 +396,15 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
 
     // Prevent audio latency from building up by skipping samples in incoming audio when too many samples are already queued.
     // Skip samples based on how many microseconds of samples are queued already.
-    uint32_t skip_factor = cur_queued_microseconds / 100000;
+#if defined(__ANDROID__)
+    // Android's AudioTrack scheduling can briefly build more queued audio under render load. The desktop
+    // 100 ms threshold makes those normal spikes decimate audio chunks, which sounds like crackle/static.
+    // Prefer a little extra latency on Android and only start destructive catch-up at a much larger backlog.
+    constexpr uint64_t queue_skip_threshold_microseconds = 500000;
+#else
+    constexpr uint64_t queue_skip_threshold_microseconds = 100000;
+#endif
+    uint32_t skip_factor = cur_queued_microseconds / queue_skip_threshold_microseconds;
     if (skip_factor != 0) {
         uint32_t skip_ratio = 1 << skip_factor;
         num_bytes_to_queue /= skip_ratio;
@@ -286,7 +420,22 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
 }
 
 size_t get_frames_remaining() {
+#if defined(__ANDROID__)
+    if (!android_app_audio_active.load(std::memory_order_acquire)) {
+        return 0;
+    }
+    std::lock_guard audio_lock{android_audio_device_mutex};
+    if (audio_device == 0) {
+        return 0;
+    }
+#endif
+#if defined(__ANDROID__)
+    // Ask the game for audio slightly earlier on Android. This gives AudioTrack more scheduling headroom
+    // without touching the game's mixer and avoids crackle from transient low-buffer conditions.
+    constexpr float buffer_offset_frames = 2.0f;
+#else
     constexpr float buffer_offset_frames = 1.0f;
+#endif
     // Get the number of remaining buffered audio bytes.
     uint64_t buffered_byte_count = SDL_GetQueuedAudioSize(audio_device);
 
@@ -321,25 +470,49 @@ void update_audio_converter() {
 }
 
 void set_frequency(uint32_t freq) {
+#if defined(__ANDROID__)
+    std::lock_guard audio_lock{android_audio_device_mutex};
+#endif
     sample_rate = freq;
     
     update_audio_converter();
 }
 
-bool reset_audio(uint32_t output_freq) {
-    SDL_AudioSpec spec_desired{
-        .freq = (int)output_freq,
-        .format = AUDIO_F32,
-        .channels = (Uint8)output_channels,
-        .silence = 0, // calculated
-        .samples = 0x100, // Fairly small sample count to reduce the latency of internal buffering
-        .padding = 0, // unused
-        .size = 0, // calculated
-        .callback = nullptr,
-        .userdata = nullptr
-    };
+#if defined(__ANDROID__)
+extern "C" __attribute__((visibility("default"))) void Java_io_github_banjorecomp_BanjoSDLActivity_nativeSetAppAudioActive(JNIEnv*, jclass, jboolean active) {
+    const bool should_be_active = active == JNI_TRUE;
+    android_app_audio_active.store(should_be_active, std::memory_order_release);
+    ultramodern::set_app_paused(!should_be_active);
 
+    {
+        std::lock_guard audio_lock{android_audio_device_mutex};
+        if (should_be_active) {
+            if (audio_device == 0) {
+                audio_device = open_android_audio_device_locked(output_sample_rate, "reopening");
+            }
+            if (audio_device != 0) {
+                SDL_ClearQueuedAudio(audio_device);
+                SDL_PauseAudioDevice(audio_device, 0);
+            }
+        }
+        else {
+            close_android_audio_device_locked();
+        }
+    }
+
+    __android_log_print(ANDROID_LOG_INFO, "BanjoRecomp", "Android app active=%s", should_be_active ? "true" : "false");
+}
+#endif
+
+bool reset_audio(uint32_t output_freq) {
+#if defined(__ANDROID__)
+    std::lock_guard audio_lock{android_audio_device_mutex};
+    close_android_audio_device_locked();
+    audio_device = open_android_audio_device_locked(output_freq, "opening");
+#else
+    SDL_AudioSpec spec_desired = make_audio_spec(output_freq);
     audio_device = SDL_OpenAudioDevice(nullptr, false, &spec_desired, nullptr, 0);
+#endif
     if (audio_device == 0) {
         std::string audio_error = std::string("No audio device could be found. Please make sure an audio device is available.\nError opening audio device: ") + std::string(SDL_GetError());
         recompui::message_box(audio_error.c_str());
@@ -615,9 +788,20 @@ void on_launcher_init(recompui::LauncherMenu *menu) {
 
 #define REGISTER_FUNC(name) recomp::overlays::register_base_export(#name, name)
 
-int main(int argc, char** argv) {
+int banjo_recomp_main(int argc, char** argv) {
     (void)argc;
     (void)argv;
+
+#if defined(__ANDROID__)
+    if (const char* program_path = getenv("APP_PROGRAM_PATH")) {
+        std::error_code ec;
+        std::filesystem::current_path(program_path, ec);
+        if (ec) {
+            __android_log_print(ANDROID_LOG_WARN, "BanjoRecomp", "Failed to set program working directory to %s: %s", program_path, ec.message().c_str());
+        }
+    }
+#endif
+
     recomp::Version project_version{};
     if (!recomp::Version::from_string(version_string, project_version)) {
         ultramodern::error_handling::message_box(("Invalid version string: " + version_string).c_str());
@@ -685,8 +869,11 @@ int main(int argc, char** argv) {
     std::filesystem::current_path("/var/data", ec);
 #endif
 
-    // Initialize native file dialogs.
+    // Initialize native file dialogs. Android uses platform document import later,
+    // so the desktop NFD backend is intentionally skipped there.
+#if !defined(__ANDROID__)
     NFD_Init();
+#endif
 
     // Initialize program settings.
     recompui::programconfig::set_program_name(banjo::program_name);
@@ -753,8 +940,15 @@ int main(int argc, char** argv) {
 
     ultramodern::renderer::callbacks_t renderer_callbacks{
         .create_render_context = [](uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, bool developer_mode) {
+#if defined(BANJO_ANDROID_RENDERER_STUB)
+            (void)rdram;
+            (void)window_handle;
+            (void)developer_mode;
+            return banjo::android::create_null_renderer_context();
+#else
             auto presentation_mode = ultramodern::renderer::PresentationMode::PresentEarly;
             return recompui::renderer::create_render_context(rdram, window_handle, presentation_mode, developer_mode);
+#endif
         },
     };
 
@@ -816,7 +1010,9 @@ int main(int argc, char** argv) {
         threads_callbacks
     );
 
+#if !defined(__ANDROID__)
     NFD_Quit();
+#endif
 
     if (preloaded) {
         release_preload(preload_context);
@@ -828,4 +1024,14 @@ int main(int argc, char** argv) {
 #endif
 
     return EXIT_SUCCESS;
+}
+
+#if defined(__ANDROID__)
+extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char** argv) {
+    return banjo_recomp_main(argc, argv);
+}
+#endif
+
+int main(int argc, char** argv) {
+    return banjo_recomp_main(argc, argv);
 }
