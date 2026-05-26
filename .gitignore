@@ -66,3 +66,13 @@ RSPRecomp
 
 # Controller mappings file
 gamecontrollerdb.txt
+
+# Android/Gradle build output
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+
+# Python cache files
+__pycache__/
+*.py[cod]
