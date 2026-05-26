@@ -2,18 +2,27 @@
 
 This Gradle project packages the Android port around SDLActivity and native `libmain.so`.
 
-There are two useful local build modes:
+The default debug build is the full Android runtime APK without bundled ROMs. That is the intended auditable/default configuration: it packages native code and runtime assets, but users must provide their own ROM through the app's ROM picker/import path.
 
-1. SDL lifecycle probe, default debug build
+There are three local build modes:
+
+1. Runtime APK, default
+   - Builds the real native runtime as `libmain.so`.
+   - Packages UI/runtime assets and `recompcontrollerdb.txt`.
+   - Does not package ROMs or ROM-derived local test files.
+   - Intended as the default buildable fork configuration.
+
+2. Runtime APK with bundled dev ROMs, opt-in
+   - Enabled with `-PbanjoBundleDevRoms=true`.
+   - Backwards-compatible alias: `-PbanjoDevFull=true`.
+   - Packages local dev ROM files under `assets/program/dev-roms/` for smoke testing only.
+   - Not a release/distribution configuration.
+
+3. SDL lifecycle probe, opt-in
+   - Enabled with `-PbanjoProbe=true`.
    - Builds `libmain.so` from `src/android/sdl_lifecycle_probe.cpp`.
    - Proves SDLActivity/native lifecycle without requiring ROM-derived generated sources.
    - Not playable.
-
-2. Dev-full APK, opt-in
-   - Builds the real native runtime as `libmain.so`.
-   - Enabled with `-PbanjoDevFull=true`.
-   - Packages local dev assets and ROM-derived files for smoke testing only.
-   - Not a release/distribution configuration.
 
 Legacy diagnostic code still exists for bring-up/reference:
 
@@ -28,7 +37,7 @@ Legacy diagnostic code still exists for bring-up/reference:
 
 The current local environment expects Android SDK/NDK, SDL2, Freetype, and Zstd prefixes to be available as configured by `android/app/build.gradle`.
 
-## Build lifecycle probe
+## Build default runtime APK
 
 ```sh
 gradle -p android :app:assembleDebug
@@ -40,13 +49,19 @@ Output:
 android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Build playable dev-full APK
+## Build runtime APK with bundled local dev ROMs
 
 ```sh
-gradle -p android :app:assembleDebug -PbanjoDevFull=true
+gradle -p android :app:assembleDebug -PbanjoBundleDevRoms=true
 ```
 
-The dev-full APK uses `BANJO_ANDROID_DEV_FULL_APK=1` and may package local ROM-derived files under app assets for local testing. Keep that path gated; do not use it for release packaging.
+The dev-ROM APK may package local ROM-derived files under app assets for local testing. Keep that path gated; do not use it for release packaging.
+
+## Build SDL lifecycle probe
+
+```sh
+gradle -p android :app:assembleDebug -PbanjoProbe=true
+```
 
 ## Install on a connected device
 
