@@ -31,8 +31,8 @@ def main() -> int:
     root_cmake = read("CMakeLists.txt")
     rt64_cmake = read("lib/rt64/CMakeLists.txt")
     rt64_window = read("lib/rt64/src/hle/rt64_application_window.cpp")
-    renderer_header = read("lib/RecompFrontend/recompui/include/recompui/renderer.h")
-    renderer_cpp = read("lib/RecompFrontend/recompui/src/renderer/rt64_render_context.cpp")
+    null_renderer_header = read("src/android/null_renderer_context.hpp")
+    null_renderer_cpp = read("src/android/null_renderer_context.cpp")
     nfd_cmake = read("lib/rt64/src/contrib/nativefiledialog-extended/CMakeLists.txt")
     nfd_src_cmake = read("lib/rt64/src/contrib/nativefiledialog-extended/src/CMakeLists.txt")
     nfd_null = read("lib/rt64/src/contrib/nativefiledialog-extended/src/nfd_null.cpp")
@@ -93,9 +93,9 @@ def main() -> int:
     require("add_compile_definitions(\"PLUME_SDL_VULKAN_ENABLED\")" in rt64_cmake, "RT64 must define PLUME_SDL_VULKAN_ENABLED")
     require("add_compile_definitions(\"RT64_SDL_WINDOW_VULKAN\")" in rt64_cmake, "RT64 must define RT64_SDL_WINDOW_VULKAN")
 
-    require("class NullRendererContext final" in renderer_header, "renderer must expose a stub/null renderer context")
-    require("BANJO_ANDROID_RENDERER_STUB" in renderer_cpp, "renderer cpp must compile the stub path behind BANJO_ANDROID_RENDERER_STUB")
-    require("std::make_unique<renderer::NullRendererContext>" in renderer_cpp, "create_render_context must return NullRendererContext in stub mode")
+    require("class NullRendererContext final" in null_renderer_cpp, "Android target must define a stub/null renderer context")
+    require("create_null_renderer_context" in null_renderer_header, "Android null renderer must expose a factory")
+    require("banjo::android::create_null_renderer_context" in main_cpp, "main renderer callback must use the Android null renderer in stub mode")
 
     require("#   elif defined(__ANDROID__)\n        static_assert(false && \"Android unimplemented\");" not in rt64_window, "RT64 Android unconditional static_asserts must be removed")
     require_regex(
