@@ -1,0 +1,111 @@
+plugins {
+    id 'com.android.application'
+}
+
+final String homeDir = System.getenv('HOME') ?: System.getProperty('user.home')
+final String androidSdk = System.getenv('ANDROID_HOME') ?: "${homeDir}/Android/Sdk"
+final String androidNdk = System.getenv('ANDROID_NDK_HOME') ?: "${androidSdk}/ndk/28.2.13676358"
+final String sdl2Prefix = System.getenv('BANJO_ANDROID_SDL2_PREFIX') ?: "${homeDir}/Android/prefixes/SDL2-2.32.10-android-arm64"
+final String freetypePrefix = System.getenv('BANJO_ANDROID_FREETYPE_PREFIX') ?: "${homeDir}/Android/prefixes/freetype-2.13.3-android-arm64"
+final boolean banjoDevFull = (project.findProperty('banjoDevFull') ?: 'false').toString().toBoolean()
+final boolean banjoNativeOptimized = (project.findProperty('banjoNativeOptimized') ?: (banjoDevFull ? 'true' : 'false')).toString().toBoolean()
+final File generatedJniLibsDir = layout.buildDirectory.dir('generated/jniLibs').get().asFile
+final File generatedAssetsDir = layout.buildDirectory.dir('generated/devAssets').get().asFile
+
+android {
+    namespace 'io.github.banjorecomp'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'io.github.banjorecomp'
+        minSdk 24
+        targetSdk 36
+        versionCode 1
+        versionName banjoDevFull ? '0.1.0-android-dev-full' : '0.1.0-android-sdl-probe'
+
+        externalNativeBuild {
+            cmake {
+                abiFilters 'arm64-v8a'
+                arguments \
+                    "-DANDROID_PLATFORM=android-24", \
+                    "-DSDL2_DIR=${sdl2Prefix}/lib/cmake/SDL2", \
+                    "-DCMAKE_PREFIX_PATH=${sdl2Prefix};${freetypePrefix}", \
+                    "-DFREETYPE_LIBRARY=${freetypePrefix}/lib/libfreetype.a", \
+                    "-DFREETYPE_INCLUDE_DIRS=${freetypePrefix}/include/freetype2", \
+                    "-DZSTD_BUILD_PROGRAMS=OFF", \
+                    "-DZSTD_BUILD_TESTS=OFF", \
+                    "-DZSTD_BUILD_DICTBUILDER=OFF", \
+                    "-DBANJO_ANDROID_SHELL_ONLY=${banjoDevFull ? 'OFF' : 'ON'}", \
+                    "-DBANJO_ANDROID_RENDERER_STUB=${banjoDevFull ? 'OFF' : 'ON'}", \
+                    "-DBANJO_ANDROID_SDL_LIFECYCLE_PROBE=${banjoDevFull ? 'OFF' : 'ON'}", \
+                    "-DBANJO_ANDROID_DEV_FULL_APK=${banjoDevFull ? 'ON' : 'OFF'}"
+                if (banjoNativeOptimized) {
+                    // Android's Gradle Debug variant drives CMake with CMAKE_BUILD_TYPE=Debug,
+                    // which otherwise gives Clang no optimization flags. The full game is CPU
+                    // heavy enough that an -O0 native build is not representative for perf testing.
+                    cFlags '-O2', '-g', '-DNDEBUG'
+                    cppFlags '-O2', '-g', '-DNDEBUG'
+                }
+            }
+        }
+    }
+
+    ndkVersion '28.2.13676358'
+
+    externalNativeBuild {
+        cmake {
+            path file('../../CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = [generatedJniLibsDir]
+            if (banjoDevFull) {
+                assets.srcDirs = [generatedAssetsDir]
+            }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}
+
+tasks.register('copySdl2JniLib', Copy) {
+    from("${sdl2Prefix}/lib/libSDL2.so")
+    into(new File(generatedJniLibsDir, 'arm64-v8a'))
+}
+
+if (banjoDevFull) {
+    tasks.register('copyProgramAssets', Copy) {
+        from('../../assets') {
+            into('program/assets')
+        }
+        from('../../recompcontrollerdb.txt') {
+            into('program')
+        }
+        into(generatedAssetsDir)
+    }
+
+    tasks.register('copyDevRomAssets', Copy) {
+        from('../../lib/bk-decomp/baserom.us.v10.z64') {
+            into('program/dev-roms')
+        }
+        from('../../banjo.us.v10.decompressed.z64') {
+            into('program/dev-roms')
+        }
+        into(generatedAssetsDir)
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn tasks.named('copySdl2JniLib')
+    if (banjoDevFull) {
+        dependsOn tasks.named('copyProgramAssets')
+        dependsOn tasks.named('copyDevRomAssets')
+    }
+}
