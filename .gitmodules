@@ -1,9 +1,9 @@
 [submodule "lib/N64ModernRuntime"]
 	path = lib/N64ModernRuntime
-	url = https://github.com/N64Recomp/N64ModernRuntime
+	url = https://github.com/AurelioB/N64ModernRuntime.git
 [submodule "lib/rt64"]
 	path = lib/rt64
-	url = https://github.com/rt64/rt64
+	url = https://github.com/AurelioB/rt64.git
 [submodule "lib/bk-decomp"]
 	path = lib/bk-decomp
 	url = https://gitlab.com/banjo.decomp/banjo-kazooie
@@ -12,4 +12,4 @@
 	url = https://github.com/BanjoRecomp/BanjoRecompSyms
 [submodule "lib/RecompFrontend"]
 	path = lib/RecompFrontend
-	url = https://github.com/N64Recomp/RecompFrontend
+	url = https://github.com/AurelioB/RecompFrontend.git
