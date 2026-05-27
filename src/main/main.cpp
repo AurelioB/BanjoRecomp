@@ -479,6 +479,12 @@ void set_frequency(uint32_t freq) {
 }
 
 #if defined(__ANDROID__)
+extern "C" void plume_set_android_surface_ready(int ready);
+
+extern "C" __attribute__((visibility("default"))) void Java_io_github_banjorecomp_BanjoSDLActivity_nativeSetAndroidSurfaceReady(JNIEnv*, jclass, jboolean ready) {
+    plume_set_android_surface_ready(ready == JNI_TRUE ? 1 : 0);
+}
+
 extern "C" __attribute__((visibility("default"))) void Java_io_github_banjorecomp_BanjoSDLActivity_nativeSetAppAudioActive(JNIEnv*, jclass, jboolean active) {
     const bool should_be_active = active == JNI_TRUE;
     android_app_audio_active.store(should_be_active, std::memory_order_release);
