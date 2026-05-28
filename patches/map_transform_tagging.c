@@ -386,7 +386,18 @@ RECOMP_PATCH void mapModel_xlu_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
             }
         }
 
+        // Bubblegloop Swamp's translucent swamp-water model is large and heavily
+        // subdivided. On Android, full matrix/vertex/texcoord interpolation for
+        // this XLU pass is enough overhead to drop below 60 FPS. Keep the water
+        // visible, but tag this map pass as non-interpolated so RT64 can use the
+        // cheaper transform path.
+        s32 prev_skip_interpolation = cur_drawn_model_skip_interpolation;
+        if (map_get() == MAP_D_BGS_BUBBLEGLOOP_SWAMP) {
+            cur_drawn_model_skip_interpolation = TRUE;
+        }
+
         modelRender_draw(gfx, mtx, NULL, NULL, mapModel.description->scale, NULL, mapModel.model_bin_xlu);
+        cur_drawn_model_skip_interpolation = prev_skip_interpolation;
         
         // @recomp Clear the current model transform id after drawing.
         cur_drawn_model_is_map = FALSE;
