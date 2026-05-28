@@ -915,7 +915,8 @@ int banjo_recomp_main(int argc, char** argv) {
     if (const char* auto_start_swamp = getenv("BANJO_AUTO_START_SWAMP")) {
         if (auto_start_swamp[0] != '\0' && auto_start_swamp[0] != '0') {
             std::u8string auto_game_id = supported_games.front().game_id;
-            std::thread{[auto_game_id]() mutable {
+            std::string auto_mod_game_id = supported_games.front().mod_game_id;
+            std::thread{[auto_game_id, auto_mod_game_id]() mutable {
                 // Let SDL/RT64 finish creating the window and first launcher frames before
                 // starting the game thread. Starting immediately can race the VI thread.
                 std::this_thread::sleep_for(std::chrono::milliseconds(1500));
@@ -923,7 +924,9 @@ int banjo_recomp_main(int argc, char** argv) {
                 __android_log_print(ANDROID_LOG_INFO, "BanjoBgsAutoload", "Starting stored ROM into Bubblegloop Swamp diagnostic");
 #endif
                 fprintf(stderr, "[bgs-autoload] Starting stored ROM into Bubblegloop Swamp diagnostic.\n");
+                recompui::update_game_mod_id(auto_mod_game_id);
                 recomp::start_game(auto_game_id, {});
+                recompui::hide_all_contexts();
             }}.detach();
         }
     }
