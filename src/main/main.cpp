@@ -910,6 +910,31 @@ int banjo_recomp_main(int argc, char** argv) {
         recomp::register_game(game);
     }
 
+    if (const char* auto_start_swamp = getenv("BANJO_AUTO_START_SWAMP")) {
+        if (auto_start_swamp[0] != '\0' && auto_start_swamp[0] != '0') {
+            std::u8string auto_game_id = supported_games.front().game_id;
+            if (const char* auto_rom_path = getenv("RECOMP_AUTO_ROM_PATH")) {
+                std::filesystem::path rom_path = auto_rom_path;
+                if (std::filesystem::exists(rom_path)) {
+                    recomp::RomValidationError result = recomp::select_rom(rom_path, auto_game_id);
+                    if (result == recomp::RomValidationError::Good) {
+                        fprintf(stderr, "[bgs-autoload] Auto-selected dev ROM and starting Bubblegloop Swamp diagnostic.\n");
+                        recomp::start_game(auto_game_id, {});
+                    }
+                    else {
+                        fprintf(stderr, "[bgs-autoload] Failed to auto-select dev ROM: %d\n", static_cast<int>(result));
+                    }
+                }
+                else {
+                    fprintf(stderr, "[bgs-autoload] RECOMP_AUTO_ROM_PATH does not exist: %s\n", auto_rom_path);
+                }
+            }
+            else {
+                fprintf(stderr, "[bgs-autoload] RECOMP_AUTO_ROM_PATH is not set.\n");
+            }
+        }
+    }
+
     recomp::mods::register_deprecated_mod("bk_recomp_mod_fov_slider", recomp::mods::DeprecationStatus::BrokenVersion, recomp::Version(1, 1, 0));
 
     REGISTER_FUNC(recomp_get_window_resolution);

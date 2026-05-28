@@ -55,7 +55,9 @@ public class BanjoSDLActivity extends SDLActivity {
         File bundledDevRom = new File(programDir, "dev-roms/baserom.us.v10.z64");
         if (bundledDevRom.isFile()) {
             nativeSetenv("RECOMP_AUTO_ROM_PATH", bundledDevRom.getAbsolutePath());
+            nativeSetenv("BANJO_AUTO_START_SWAMP", "1");
             Log.i(TAG, "RECOMP_AUTO_ROM_PATH=" + bundledDevRom.getAbsolutePath());
+            Log.i(TAG, "BANJO_AUTO_START_SWAMP=1");
         }
         Log.i(TAG, "APP_PROGRAM_PATH=" + programDir.getAbsolutePath());
         Log.i(TAG, "APP_FOLDER_PATH=" + appDataDir.getAbsolutePath());
