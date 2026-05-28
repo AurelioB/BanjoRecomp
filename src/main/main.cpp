@@ -11,6 +11,8 @@
 #include <atomic>
 #include <mutex>
 #include <cstring>
+#include <thread>
+#include <chrono>
 
 #if !defined(__ANDROID__)
 #include "nfd.h"
@@ -912,22 +914,28 @@ int banjo_recomp_main(int argc, char** argv) {
 
     if (const char* auto_start_swamp = getenv("BANJO_AUTO_START_SWAMP")) {
         if (auto_start_swamp[0] != '\0' && auto_start_swamp[0] != '0') {
-            std::u8string auto_game_id = supported_games.front().game_id;
-            if (const char* auto_rom_path = getenv("RECOMP_AUTO_ROM_PATH")) {
+            const char* auto_rom_path = getenv("RECOMP_AUTO_ROM_PATH");
+            if (auto_rom_path != nullptr) {
+                std::u8string auto_game_id = supported_games.front().game_id;
                 std::filesystem::path rom_path = auto_rom_path;
-                if (std::filesystem::exists(rom_path)) {
-                    recomp::RomValidationError result = recomp::select_rom(rom_path, auto_game_id);
-                    if (result == recomp::RomValidationError::Good) {
-                        fprintf(stderr, "[bgs-autoload] Auto-selected dev ROM and starting Bubblegloop Swamp diagnostic.\n");
-                        recomp::start_game(auto_game_id, {});
+                std::thread{[auto_game_id, rom_path]() mutable {
+                    // Let SDL/RT64 finish creating the window and first launcher frames before
+                    // starting the game thread. Starting immediately can race the VI thread.
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+                    if (std::filesystem::exists(rom_path)) {
+                        recomp::RomValidationError result = recomp::select_rom(rom_path, auto_game_id);
+                        if (result == recomp::RomValidationError::Good) {
+                            fprintf(stderr, "[bgs-autoload] Auto-selected dev ROM and starting Bubblegloop Swamp diagnostic.\n");
+                            recomp::start_game(auto_game_id, {});
+                        }
+                        else {
+                            fprintf(stderr, "[bgs-autoload] Failed to auto-select dev ROM: %d\n", static_cast<int>(result));
+                        }
                     }
                     else {
-                        fprintf(stderr, "[bgs-autoload] Failed to auto-select dev ROM: %d\n", static_cast<int>(result));
+                        fprintf(stderr, "[bgs-autoload] RECOMP_AUTO_ROM_PATH does not exist: %s\n", rom_path.string().c_str());
                     }
-                }
-                else {
-                    fprintf(stderr, "[bgs-autoload] RECOMP_AUTO_ROM_PATH does not exist: %s\n", auto_rom_path);
-                }
+                }}.detach();
             }
             else {
                 fprintf(stderr, "[bgs-autoload] RECOMP_AUTO_ROM_PATH is not set.\n");
