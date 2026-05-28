@@ -27,6 +27,7 @@ import java.util.ArrayList;
 public class BanjoSDLActivity extends SDLActivity {
     private static final String TAG = "BanjoSDLActivity";
     private static final int REQUEST_INSTALL_MODS = 1001;
+    private static final int REQUEST_SELECT_ROM = 1002;
     private static final String PROGRAM_ASSET_STAMP_FILE = ".program-assets-stamp";
 
     public static native void nativeSetAndroidSurfaceReady(boolean ready);
@@ -152,6 +153,26 @@ public class BanjoSDLActivity extends SDLActivity {
         });
     }
 
+    public void openRomFilePicker() {
+        runOnUiThread(() -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
+                "application/octet-stream",
+                "application/x-n64-rom",
+                "application/vnd.nintendo.snes.rom"
+            });
+
+            try {
+                startActivityForResult(intent, REQUEST_SELECT_ROM);
+            } catch (ActivityNotFoundException e) {
+                Log.e(TAG, "No Android document picker is available for loading ROMs", e);
+                nativeOnRomSelected(null);
+            }
+        });
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == REQUEST_INSTALL_MODS) {
@@ -178,6 +199,15 @@ public class BanjoSDLActivity extends SDLActivity {
             return;
         }
 
+        if (requestCode == REQUEST_SELECT_ROM) {
+            String importedPath = null;
+            if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
+                importedPath = copySelectedRom(data.getData());
+            }
+            nativeOnRomSelected(importedPath);
+            return;
+        }
+
         super.onActivityResult(requestCode, resultCode, data);
     }
 
@@ -188,17 +218,35 @@ public class BanjoSDLActivity extends SDLActivity {
         }
 
         File importDir = new File(getCacheDir(), "mod-imports");
-        if (!importDir.exists() && !importDir.mkdirs()) {
-            Log.e(TAG, "Failed to create mod import directory " + importDir.getAbsolutePath());
-            return;
+        File destination = copyDocumentToCache(uri, importDir, sanitizeFilename(displayName), "selected mod");
+        if (destination != null) {
+            importedPaths.add(destination.getAbsolutePath());
+        }
+    }
+
+    private String copySelectedRom(Uri uri) {
+        String displayName = getDisplayName(uri);
+        if (displayName == null || displayName.isEmpty()) {
+            displayName = "selected-rom.z64";
         }
 
-        File destination = uniqueDestination(importDir, sanitizeFilename(displayName));
+        File importDir = new File(getCacheDir(), "rom-imports");
+        File destination = copyDocumentToCache(uri, importDir, sanitizeFilename(displayName), "selected ROM");
+        return destination != null ? destination.getAbsolutePath() : null;
+    }
+
+    private File copyDocumentToCache(Uri uri, File importDir, String filename, String label) {
+        if (!importDir.exists() && !importDir.mkdirs()) {
+            Log.e(TAG, "Failed to create import directory " + importDir.getAbsolutePath());
+            return null;
+        }
+
+        File destination = uniqueDestination(importDir, filename);
         try (InputStream in = getContentResolver().openInputStream(uri);
              OutputStream out = new FileOutputStream(destination)) {
             if (in == null) {
-                Log.e(TAG, "Unable to open selected mod URI " + uri);
-                return;
+                Log.e(TAG, "Unable to open " + label + " URI " + uri);
+                return null;
             }
 
             byte[] buffer = new byte[64 * 1024];
@@ -206,10 +254,11 @@ public class BanjoSDLActivity extends SDLActivity {
             while ((read = in.read(buffer)) != -1) {
                 out.write(buffer, 0, read);
             }
-            importedPaths.add(destination.getAbsolutePath());
-            Log.i(TAG, "Imported selected mod to " + destination.getAbsolutePath());
+            Log.i(TAG, "Imported " + label + " to " + destination.getAbsolutePath());
+            return destination;
         } catch (IOException e) {
-            Log.e(TAG, "Failed to import selected mod " + uri, e);
+            Log.e(TAG, "Failed to import " + label + " " + uri, e);
+            return null;
         }
     }
 
@@ -255,6 +304,7 @@ public class BanjoSDLActivity extends SDLActivity {
     }
 
     private static native void nativeOnModsSelected(String[] paths);
+    private static native void nativeOnRomSelected(String path);
 
     private void extractProgramAssetsIfNeeded(File programDir) throws IOException {
         if (!assetTreeExists("program")) {

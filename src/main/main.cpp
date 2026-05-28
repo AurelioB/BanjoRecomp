@@ -130,6 +130,24 @@ extern "C" JNIEXPORT void JNICALL
 Java_io_github_banjorecomp_BanjoSDLActivity_nativeOnModsSelected(JNIEnv* env, jclass, jobjectArray paths) {
     push_android_mod_drop_events(env, paths);
 }
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_banjorecomp_BanjoSDLActivity_nativeOnRomSelected(JNIEnv* env, jclass, jstring path_string) {
+    if (path_string == nullptr) {
+        recompui::file::complete_android_file_dialog(false, {});
+        return;
+    }
+
+    const char* path_chars = env->GetStringUTFChars(path_string, nullptr);
+    if (path_chars == nullptr) {
+        recompui::file::complete_android_file_dialog(false, {});
+        return;
+    }
+
+    std::filesystem::path path{path_chars};
+    env->ReleaseStringUTFChars(path_string, path_chars);
+    recompui::file::complete_android_file_dialog(true, path);
+}
 #endif
 
 const std::string version_string = "1.0.1";
