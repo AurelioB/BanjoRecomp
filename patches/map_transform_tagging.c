@@ -356,6 +356,16 @@ RECOMP_PATCH void func_8034EF60(Struct77s* arg0, BKModel* arg1, s32 arg2) {
 RECOMP_PATCH void mapModel_xlu_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
     s32 temp_a0;
 
+#if defined(__ANDROID__)
+    // Diagnostic-only branch: skip Bubblegloop Swamp's translucent map model to
+    // test whether the muddy water/XLU pass is the source of Android FPS drops.
+    // Keep the post-map draw hook so dependent transient geometry still runs.
+    if (map_get() == MAP_D_BGS_BUBBLEGLOOP_SWAMP) {
+        func_802F7BC0(gfx, mtx, vtx);
+        return;
+    }
+#endif
+
     if (mapModel.model_bin_xlu != NULL) {
         if (map_get() == MAP_1D_MMM_CELLAR) {
             func_8033A45C(1, (actorArray_findActorFromActorId(0x191) != NULL) ? 0 : 1);
