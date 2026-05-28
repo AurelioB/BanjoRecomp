@@ -357,20 +357,6 @@ RECOMP_PATCH void func_8034EF60(Struct77s* arg0, BKModel* arg1, s32 arg2) {
 RECOMP_PATCH void mapModel_xlu_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
     s32 temp_a0;
 
-    // Diagnostic-only branch: skip Bubblegloop Swamp's translucent map model to
-    // test whether the muddy water/XLU pass is the source of Android FPS drops.
-    // Keep the post-map draw hook so dependent transient geometry still runs.
-    // This patch code is compiled through the N64 patch pipeline, so don't guard
-    // it with __ANDROID__; that macro is not reliably present there.
-    if (map_get() == MAP_D_BGS_BUBBLEGLOOP_SWAMP) {
-        if (!bgs_xlu_diagnostic_logged) {
-            bgs_xlu_diagnostic_logged = 1;
-            recomp_printf("[bgs-xlu-diagnostic] skipping BGS translucent map pass\n");
-        }
-        func_802F7BC0(gfx, mtx, vtx);
-        return;
-    }
-
     if (mapModel.model_bin_xlu != NULL) {
         if (map_get() == MAP_1D_MMM_CELLAR) {
             func_8033A45C(1, (actorArray_findActorFromActorId(0x191) != NULL) ? 0 : 1);
@@ -401,7 +387,18 @@ RECOMP_PATCH void mapModel_xlu_draw(Gfx **gfx, Mtx **mtx, Vtx **vtx) {
             }
         }
 
+        // Bubblegloop Swamp's translucent swamp-water model is large and heavily
+        // subdivided. On Android, full matrix/vertex/texcoord interpolation for
+        // this XLU pass is enough overhead to drop below 60 FPS. Keep the water
+        // visible, but tag this map pass as non-interpolated so RT64 can use the
+        // cheaper transform path.
+        s32 prev_skip_interpolation = cur_drawn_model_skip_interpolation;
+        if (map_get() == MAP_D_BGS_BUBBLEGLOOP_SWAMP) {
+            cur_drawn_model_skip_interpolation = TRUE;
+        }
+
         modelRender_draw(gfx, mtx, NULL, NULL, mapModel.description->scale, NULL, mapModel.model_bin_xlu);
+        cur_drawn_model_skip_interpolation = prev_skip_interpolation;
         
         // @recomp Clear the current model transform id after drawing.
         cur_drawn_model_is_map = FALSE;
