@@ -83,7 +83,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ '${{ github.event_name }}' == 'pull_request' ]]; then
+          if [[ '${{ github.event_name }}' == 'pull_request' || '${{ github.ref_name }}' == ci/* ]]; then
             mode='probe'
             build_type='Debug'
           else
