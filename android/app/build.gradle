@@ -12,6 +12,13 @@ final boolean banjoProbe = (project.findProperty('banjoProbe') ?: 'false').toStr
 final boolean banjoBundleDevRoms = (project.findProperty('banjoBundleDevRoms') ?: project.findProperty('banjoDevFull') ?: 'false').toString().toBoolean()
 final boolean banjoRuntimeApk = !banjoProbe
 final boolean banjoNativeOptimized = (project.findProperty('banjoNativeOptimized') ?: (banjoRuntimeApk ? 'true' : 'false')).toString().toBoolean()
+final String banjoVersionName = System.getenv('BANJO_ANDROID_VERSION_NAME') ?: (banjoProbe ? '0.1.0-android-sdl-probe' : (banjoBundleDevRoms ? '0.1.0-android-dev-roms' : '0.1.0-android-runtime'))
+final int banjoVersionCode = (System.getenv('BANJO_ANDROID_VERSION_CODE') ?: project.findProperty('banjoVersionCode') ?: '1').toString().toInteger()
+final String releaseStoreFile = System.getenv('BANJO_ANDROID_KEYSTORE_FILE')
+final String releaseStorePassword = System.getenv('BANJO_ANDROID_KEYSTORE_PASSWORD')
+final String releaseKeyAlias = System.getenv('BANJO_ANDROID_KEY_ALIAS')
+final String releaseKeyPassword = System.getenv('BANJO_ANDROID_KEY_PASSWORD') ?: releaseStorePassword
+final boolean hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
 final File generatedJniLibsDir = layout.buildDirectory.dir('generated/jniLibs').get().asFile
 final File generatedProgramAssetsDir = layout.buildDirectory.dir('generated/programAssets').get().asFile
 final File generatedDevRomAssetsDir = layout.buildDirectory.dir('generated/devRomAssets').get().asFile
@@ -24,8 +31,8 @@ android {
         applicationId 'io.github.banjorecomp'
         minSdk 24
         targetSdk 36
-        versionCode 1
-        versionName banjoProbe ? '0.1.0-android-sdl-probe' : (banjoBundleDevRoms ? '0.1.0-android-dev-roms' : '0.1.0-android-runtime')
+        versionCode banjoVersionCode
+        versionName banjoVersionName
 
         externalNativeBuild {
             cmake {
@@ -51,6 +58,26 @@ android {
                     cFlags '-O2', '-g', '-DNDEBUG'
                     cppFlags '-O2', '-g', '-DNDEBUG'
                 }
+            }
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
             }
         }
     }
