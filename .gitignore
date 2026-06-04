@@ -3,17 +3,40 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 
-# Input elf and rom files
+# Input elf and ROM files (local/private only)
 *.elf
 *.z64
+*.n64
+*.v64
+*.rom
 
-# Output C files
+# Generated recompilation output
 RecompiledFuncs/
 RecompiledPatches/
+patches/*.bin
+patches/*.elf
+patches/*.map
+patches/*.o
+patches/*.d
+rsp/n_aspMain.cpp
 
-# Linux build output
+# Save backups / local emulator state
+save-backups/
+saves-backup/
+rom-backups/
+*.sav
+*.srm
+*.eep
+*.fla
+*.mpk
+*.bin.bak
+*.save.bak
+
+# Linux/CMake build output
 build/
 build-cmake/
+cmake-build-*/
+out/
 *.o
 
 # Flatpak build process
@@ -70,8 +93,20 @@ gamecontrollerdb.txt
 # Android/Gradle build output
 android/.gradle/
 android/build/
-android/app/build/
 android/app/.cxx/
+android/app/build/
+android/app/release/
+android/app/debug/
+android/app/src/main/assets/program/dev-roms/
+*.apk
+*.aab
+*.ap_
+
+# Android local signing / SDK state
+android/local.properties
+local.properties
+*.keystore
+*.jks
 
 # Python cache files
 __pycache__/
