@@ -115,6 +115,8 @@ jobs:
             echo "The APK and SHA256 checksum are attached by the tag-triggered Android APK workflow run."
           } > release-notes.md
 
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$tag" -m "BanjoRecomp Android ${tag}"
           git push origin "$tag"
           gh release create "$tag" \
