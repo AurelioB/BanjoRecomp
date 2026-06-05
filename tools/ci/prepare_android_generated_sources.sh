@@ -2,8 +2,7 @@
 set -euo pipefail
 
 MODE="${1:-runtime}"
-PRIVATE_INPUTS_DIR="${BANJO_ANDROID_PRIVATE_INPUTS_DIR:-extra/private-inputs}"
-DECOMPRESSED_ROM="${BANJO_ANDROID_DECOMPRESSED_ROM:-${PRIVATE_INPUTS_DIR}/banjo.us.v10.decompressed.z64}"
+PRIVATE_INPUTS_DIR="${BANJO_ANDROID_PRIVATE_INPUTS_DIR:-extra}"
 N64RECOMP_SOURCE_DIR="${BANJO_ANDROID_N64RECOMP_SOURCE_DIR:-lib/N64ModernRuntime/N64Recomp}"
 N64RECOMP_BUILD_DIR="${BANJO_ANDROID_N64RECOMP_BUILD_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/banjo-n64recomp-build}"
 
@@ -37,6 +36,35 @@ build_recomp_tools() {
   chmod +x ./N64Recomp ./RSPRecomp
 }
 
+copy_private_inputs() {
+  if [[ ! -d "$PRIVATE_INPUTS_DIR" ]]; then
+    cat >&2 <<MSG
+Runtime APK build needs generated BanjoRecomp sources, but they are missing.
+
+This workflow follows the upstream extra/ pattern. Provide a private input
+repository checkout at:
+  $PRIVATE_INPUTS_DIR
+
+The private input repository should contain files expected by the public TOML
+configuration, including banjo.us.v10.decompressed.z64 at its root.
+
+Probe builds can run without this by setting build_mode=probe.
+MSG
+    exit 2
+  fi
+
+  shopt -s nullglob dotglob
+  local inputs=("$PRIVATE_INPUTS_DIR"/*)
+  shopt -u nullglob dotglob
+  if [[ ${#inputs[@]} -eq 0 ]]; then
+    echo "Private input directory is empty: $PRIVATE_INPUTS_DIR" >&2
+    exit 2
+  fi
+
+  echo "Copying private inputs from $PRIVATE_INPUTS_DIR into the repository root."
+  cp -a "$PRIVATE_INPUTS_DIR"/* .
+}
+
 if [[ "$MODE" == "probe" ]]; then
   echo "Probe build selected; generated game sources are not required."
   exit 0
@@ -47,28 +75,7 @@ if have_runtime_sources; then
   exit 0
 fi
 
-if [[ ! -f "$DECOMPRESSED_ROM" ]]; then
-  cat >&2 <<MSG
-Runtime APK build needs generated BanjoRecomp sources, but they are missing.
-
-Expected generated files at minimum:
-  RecompiledFuncs/*.c or *.cpp
-  RecompiledPatches/patches.c
-  rsp/n_aspMain.cpp
-
-This workflow now follows the upstream-style generation path. Provide the private
-input repository checkout containing:
-  banjo.us.v10.decompressed.z64
-
-Expected ROM path for this run:
-  $DECOMPRESSED_ROM
-
-Probe builds can run without this by setting build_mode=probe.
-MSG
-  exit 2
-fi
-
-cp "$DECOMPRESSED_ROM" banjo.us.v10.decompressed.z64
+copy_private_inputs
 build_recomp_tools
 
 ./N64Recomp banjo.us.rev0.toml
@@ -81,8 +88,8 @@ if ! have_runtime_sources; then
   exit 2
 fi
 
-# The decompressed ROM is needed only while generating sources. Remove it before
-# Gradle packaging so it cannot accidentally be bundled as an APK asset.
+# Private inputs are needed only while generating sources. Remove the known ROM
+# input before Gradle packaging so it cannot accidentally be bundled as an APK asset.
 rm -f banjo.us.v10.decompressed.z64
 
 echo "Generated runtime sources are ready."

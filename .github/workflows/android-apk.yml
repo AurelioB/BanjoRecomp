@@ -228,7 +228,7 @@ jobs:
         with:
           repository: ${{ env.BANJO_ANDROID_PRIVATE_INPUTS_REPO }}
           ssh-key: ${{ secrets.BANJO_ANDROID_PRIVATE_INPUTS_SSH_KEY }}
-          path: extra/private-inputs
+          path: extra
           persist-credentials: false
 
       - name: Prepare generated runtime sources

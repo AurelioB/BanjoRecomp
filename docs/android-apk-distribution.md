@@ -5,7 +5,8 @@ This repo builds Android APKs with GitHub Actions in `.github/workflows/android-
 ## What the workflow does
 
 - Checks out submodules recursively.
-- For runtime builds, checks out the private inputs repository into `extra/private-inputs` using a read-only deploy key.
+- For runtime builds, checks out the private inputs repository into `extra` using a read-only deploy key.
+- Copies the private input repo contents from `extra/` into the repository root, matching upstream's `cp extra/* .` pattern.
 - Builds `N64Recomp` and `RSPRecomp` from the pinned submodule under `lib/N64ModernRuntime/N64Recomp`, then runs them to generate runtime sources.
 - Installs JDK 17, Android SDK platform 36, build-tools 36.0.0, NDK 28.2.13676358, and CMake 3.22.1.
 - Builds Android arm64 SDL2 2.32.10 and Freetype 2.13.3 into `~/Android/prefixes` and caches them.
@@ -94,7 +95,7 @@ tools/ci/verify_android_apk.sh android/app/build/outputs/apk/release/app-release
 Runtime APK using the private-input layout locally:
 
 ```bash
-git clone git@github.com:AurelioB/BanjoRecomp-private-inputs.git extra/private-inputs
+git clone git@github.com:AurelioB/BanjoRecomp-private-inputs.git extra
 source ~/.config/android-build-env.sh
 tools/ci/prepare_android_generated_sources.sh runtime
 gradle -p android --no-daemon :app:assembleRelease --stacktrace
