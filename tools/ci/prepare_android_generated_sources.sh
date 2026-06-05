@@ -67,6 +67,14 @@ build_file_to_c() {
 
   echo "Building host file_to_c helper."
   c++ -std=c++17 -O2 "$source_path" -o "$FILE_TO_C"
+
+  if [[ -n "${GITHUB_PATH:-}" ]]; then
+    local host_tools_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/banjo-host-tools"
+    mkdir -p "$host_tools_dir"
+    cp "$FILE_TO_C" "$host_tools_dir/file_to_c"
+    chmod +x "$host_tools_dir/file_to_c"
+    echo "$host_tools_dir" >> "$GITHUB_PATH"
+  fi
 }
 
 copy_private_inputs() {
