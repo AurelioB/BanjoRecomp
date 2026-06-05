@@ -142,8 +142,6 @@ jobs:
       BANJO_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.BANJO_ANDROID_KEYSTORE_PASSWORD }}
       BANJO_ANDROID_KEY_ALIAS: ${{ secrets.BANJO_ANDROID_KEY_ALIAS }}
       BANJO_ANDROID_KEY_PASSWORD: ${{ secrets.BANJO_ANDROID_KEY_PASSWORD }}
-      BANJO_ANDROID_VERSION_NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('0.1.0-android-{0}', github.run_number) }}
-      BANJO_ANDROID_VERSION_CODE: ${{ github.run_number }}
 
     steps:
       - name: Checkout
@@ -157,6 +155,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          ref_name='${{ github.ref_name }}'
+          version_name="0.1.0-android-${{ github.run_number }}"
+          version_code='${{ github.run_number }}'
+
+          if [[ '${{ github.ref_type }}' == 'tag' ]]; then
+            version_name="${ref_name#android-v}"
+            version_name="${version_name#v}"
+            if [[ ! "$version_name" =~ ^[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "Release tag must look like android-v1.2.3 or v1.2.3; got ${ref_name}" >&2
+              exit 2
+            fi
+            base_version="${version_name%%-*}"
+            IFS=. read -r major minor patch <<<"$base_version"
+            if (( 10#$minor > 99 || 10#$patch > 99 )); then
+              echo "Minor and patch versions must be <= 99 because versionCode is major*10000 + minor*100 + patch." >&2
+              exit 2
+            fi
+            version_code=$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))
+          fi
+
+          echo "BANJO_ANDROID_VERSION_NAME=$version_name" >> "$GITHUB_ENV"
+          echo "BANJO_ANDROID_VERSION_CODE=$version_code" >> "$GITHUB_ENV"
+          echo "Android versionName: $version_name"
+          echo "Android versionCode: $version_code"
+
           if [[ '${{ github.event_name }}' == 'pull_request' || ('${{ github.event_name }}' == 'push' && ('${{ github.ref_name }}' == ci/* || '${{ github.ref_name }}' == 'android')) ]]; then
             mode='probe'
             build_type='Debug'
@@ -170,7 +193,7 @@ jobs:
             probe_arg='-PbanjoProbe=true'
           fi
           apk_dir="android/app/build/outputs/apk/${build_type,,}"
-          name="BanjoRecomp-android-${BANJO_ANDROID_VERSION_NAME}-${mode}-${build_type,,}.apk"
+          name="BanjoRecomp-android-${version_name}-${mode}-${build_type,,}.apk"
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
           echo "build_type=$build_type" >> "$GITHUB_OUTPUT"
           echo "task=$task" >> "$GITHUB_OUTPUT"

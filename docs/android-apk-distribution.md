@@ -44,6 +44,30 @@ A runtime `Release` build fails fast if signing secrets are missing. That is int
 
 ## Creating a release
 
+### Recommended local helper
+
+Use the helper script to avoid fat-fingering GitHub Actions inputs:
+
+```bash
+./scripts/android-release.sh 0.1.0
+```
+
+Dry-run first if you want to verify the derived tag and Android `versionCode`:
+
+```bash
+./scripts/android-release.sh --dry-run 0.1.0
+```
+
+The helper validates the version, checks that `android` matches `origin/android`, verifies the tag does not already exist, and dispatches the `Android APK` workflow with `release_version` set.
+
+Release tag builds derive Android app metadata from the tag:
+
+- `android-v0.1.0` -> `versionName=0.1.0`, `versionCode=100`
+- `android-v0.1.1` -> `versionName=0.1.1`, `versionCode=101`
+- `android-v1.2.3` -> `versionName=1.2.3`, `versionCode=10203`
+
+This keeps release APKs installable as updates as long as each new release has a higher semantic version.
+
 ### Local tag flow
 
 Push a tag matching `android-v*` or `v*`:
