@@ -85,12 +85,12 @@ Run the `Android APK` workflow manually from GitHub Actions on the `android` bra
 
 - `release_version`: the new version, for example `0.1.1`, `v0.1.1`, or `android-v0.1.1`.
 
-When `release_version` is set, the dispatch run does not build directly. It:
+When `release_version` is set, the dispatch run:
 
-1. Creates and pushes `android-v<version>` at the selected branch commit.
+1. Creates or reuses `android-v<version>` at the selected branch commit.
 2. Finds the previous merged `android-v*` tag, falling back to `v*` if needed.
-3. Creates a GitHub Release whose notes list every non-merge commit between the previous tag and the new tag.
-4. Lets the normal tag-triggered workflow run build the signed runtime Release APK and attach the APK plus `.sha256` to that release. Release APK assets use the upstream-style filename form, for example `BanjoRecompiled-v0.1.0-Android-ARM64.apk`.
+3. Creates or updates a GitHub Release whose notes list every non-merge commit between the previous tag and the new tag.
+4. Builds the signed runtime Release APK and attaches the APK plus `.sha256` to that release. Release APK assets use the upstream-style filename form, for example `BanjoRecompiled-v0.1.0-Android-ARM64.apk`.
 
 Leave `release_version` empty if you only want a manually dispatched build artifact without creating a release tag.
 

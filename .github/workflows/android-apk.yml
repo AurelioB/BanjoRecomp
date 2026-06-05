@@ -61,6 +61,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.release_version != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
 
     steps:
       - name: Checkout
@@ -84,13 +86,12 @@ jobs:
             exit 2
           fi
           tag="android-v${version}"
-          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-            echo "Tag already exists locally: ${tag}" >&2
-            exit 2
-          fi
+          tag_exists=false
           if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
-            echo "Tag already exists on origin: ${tag}" >&2
-            exit 2
+            tag_exists=true
+            git fetch origin "refs/tags/${tag}:refs/tags/${tag}"
+          elif git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            tag_exists=true
           fi
 
           previous_tag="$(git tag --merged HEAD --list 'android-v*' --sort=-creatordate | head -n1 || true)"
@@ -112,23 +113,34 @@ jobs:
             fi
             echo
             echo
-            echo "The APK and SHA256 checksum are attached by the tag-triggered Android APK workflow run."
+            echo "The APK and SHA256 checksum are attached by the Android APK workflow run."
           } > release-notes.md
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$tag" -m "BanjoRecomp Android ${tag}"
-          git push origin "$tag"
-          gh release create "$tag" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "BanjoRecomp Android ${tag}" \
-            --notes-file release-notes.md
+          if [[ "$tag_exists" == false ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$tag" -m "BanjoRecomp Android ${tag}"
+            git push origin "$tag"
+          fi
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "BanjoRecomp Android ${tag}" \
+              --notes-file release-notes.md
+          else
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "BanjoRecomp Android ${tag}" \
+              --notes-file release-notes.md
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build Android APK
-    if: github.event_name != 'workflow_dispatch' || inputs.release_version == ''
+    needs: release
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.release_version == '' || needs.release.result == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 120
 
@@ -158,10 +170,15 @@ jobs:
         run: |
           set -euo pipefail
           ref_name='${{ github.ref_name }}'
+          if [[ '${{ github.event_name }}' == 'workflow_dispatch' && '${{ inputs.release_version }}' != '' ]]; then
+            ref_name='${{ needs.release.outputs.tag }}'
+          fi
           version_name="0.1.0-android-${{ github.run_number }}"
           version_code='${{ github.run_number }}'
 
-          if [[ '${{ github.ref_type }}' == 'tag' ]]; then
+          is_release_build=false
+          if [[ '${{ github.ref_type }}' == 'tag' || ('${{ github.event_name }}' == 'workflow_dispatch' && '${{ inputs.release_version }}' != '') ]]; then
+            is_release_build=true
             version_name="${ref_name#android-v}"
             version_name="${version_name#v}"
             if [[ ! "$version_name" =~ ^[0-9]+[.][0-9]+[.][0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
@@ -185,6 +202,9 @@ jobs:
           if [[ '${{ github.event_name }}' == 'pull_request' || ('${{ github.event_name }}' == 'push' && ('${{ github.ref_name }}' == ci/* || '${{ github.ref_name }}' == 'android')) ]]; then
             mode='probe'
             build_type='Debug'
+          elif [[ "$is_release_build" == true ]]; then
+            mode='runtime'
+            build_type='Release'
           else
             mode='${{ inputs.build_mode || 'runtime' }}'
             build_type='${{ inputs.build_type || 'Release' }}'
@@ -196,7 +216,7 @@ jobs:
           fi
           apk_dir="android/app/build/outputs/apk/${build_type,,}"
           name="BanjoRecomp-android-${version_name}-${mode}-${build_type,,}.apk"
-          if [[ '${{ github.ref_type }}' == 'tag' && "$mode" == 'runtime' && "$build_type" == 'Release' ]]; then
+          if [[ "$is_release_build" == true && "$mode" == 'runtime' && "$build_type" == 'Release' ]]; then
             name="BanjoRecompiled-v${version_name}-Android-ARM64.apk"
           fi
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
@@ -332,9 +352,10 @@ jobs:
           if-no-files-found: error
 
       - name: Attach APK to GitHub Release
-        if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.upload_to_release)
+        if: (github.ref_type == 'tag' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.release_version != '') || inputs.upload_to_release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.release.outputs.tag || github.ref_name }}
           files: |
             ${{ steps.dist.outputs.apk }}
             ${{ steps.dist.outputs.sha }}
