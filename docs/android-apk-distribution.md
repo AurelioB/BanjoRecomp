@@ -5,6 +5,8 @@ This repo builds Android APKs with GitHub Actions in `.github/workflows/android-
 ## What the workflow does
 
 - Checks out submodules recursively.
+- For runtime builds, checks out the private inputs repository into `extra/private-inputs` using a read-only deploy key.
+- Builds `N64Recomp` and `RSPRecomp` from the pinned submodule under `lib/N64ModernRuntime/N64Recomp`, then runs them to generate runtime sources.
 - Installs JDK 17, Android SDK platform 36, build-tools 36.0.0, NDK 28.2.13676358, and CMake 3.22.1.
 - Builds Android arm64 SDL2 2.32.10 and Freetype 2.13.3 into `~/Android/prefixes` and caches them.
 - Builds the Gradle APK from `android/`.
@@ -21,7 +23,7 @@ This repo builds Android APKs with GitHub Actions in `.github/workflows/android-
 - `RecompiledPatches/patches.c`
 - `rsp/n_aspMain.cpp`
 
-Those files are generated from a legally owned ROM and should not be committed unless the project/legal policy explicitly changes.
+Those files are generated in CI from a legally owned decompressed ROM stored in the private inputs repository. They should not be committed unless the project/legal policy explicitly changes.
 
 `probe` builds the SDL lifecycle smoke APK with `-PbanjoProbe=true`. It does not require generated game sources and is used for pull requests.
 
@@ -29,12 +31,15 @@ Those files are generated from a legally owned ROM and should not be committed u
 
 For a signed runtime release APK, configure these GitHub repository secrets:
 
-- `BANJO_ANDROID_GENERATED_SOURCES_URL`: private HTTPS URL for a tar archive of the generated source files. The archive should extract at repo root. Supported formats: `.tar`, `.tar.gz`, `.tgz`, `.tar.xz`, `.tar.zst`.
-- `BANJO_ANDROID_GENERATED_SOURCES_TOKEN`: optional bearer token for the generated-source archive URL.
+- `BANJO_ANDROID_PRIVATE_INPUTS_SSH_KEY`: private half of the read-only deploy key that can clone the private inputs repository.
 - `BANJO_ANDROID_KEYSTORE_BASE64`: base64 encoded Android release keystore.
 - `BANJO_ANDROID_KEYSTORE_PASSWORD`: keystore password.
 - `BANJO_ANDROID_KEY_ALIAS`: key alias.
 - `BANJO_ANDROID_KEY_PASSWORD`: key password. Optional if it matches the keystore password.
+
+The workflow also reads repository variable `BANJO_ANDROID_PRIVATE_INPUTS_REPO`, currently expected to be `AurelioB/BanjoRecomp-private-inputs`. That private repository should contain this file at its root:
+
+- `banjo.us.v10.decompressed.z64`
 
 A runtime `Release` build fails fast if signing secrets are missing. That is intentional: unsigned release APKs are not useful for distribution.
 
@@ -84,4 +89,13 @@ source ~/.config/android-build-env.sh
 tools/ci/prepare_android_generated_sources.sh runtime
 gradle -p android --no-daemon :app:assembleRelease --stacktrace
 tools/ci/verify_android_apk.sh android/app/build/outputs/apk/release/app-release.apk runtime
+```
+
+Runtime APK using the private-input layout locally:
+
+```bash
+git clone git@github.com:AurelioB/BanjoRecomp-private-inputs.git extra/private-inputs
+source ~/.config/android-build-env.sh
+tools/ci/prepare_android_generated_sources.sh runtime
+gradle -p android --no-daemon :app:assembleRelease --stacktrace
 ```

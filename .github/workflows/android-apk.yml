@@ -13,6 +13,7 @@ on:
   push:
     branches:
       - main
+      - android
       - 'android/**'
       - 'ci/**'
     tags:
@@ -136,8 +137,7 @@ jobs:
       ANDROID_CMAKE_VERSION: '3.22.1'
       ANDROID_ABI: arm64-v8a
       ANDROID_PLATFORM: '24'
-      BANJO_ANDROID_GENERATED_SOURCES_URL: ${{ secrets.BANJO_ANDROID_GENERATED_SOURCES_URL }}
-      BANJO_ANDROID_GENERATED_SOURCES_TOKEN: ${{ secrets.BANJO_ANDROID_GENERATED_SOURCES_TOKEN }}
+      BANJO_ANDROID_PRIVATE_INPUTS_REPO: ${{ vars.BANJO_ANDROID_PRIVATE_INPUTS_REPO || 'AurelioB/BanjoRecomp-private-inputs' }}
       BANJO_ANDROID_KEYSTORE_BASE64: ${{ secrets.BANJO_ANDROID_KEYSTORE_BASE64 }}
       BANJO_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.BANJO_ANDROID_KEYSTORE_PASSWORD }}
       BANJO_ANDROID_KEY_ALIAS: ${{ secrets.BANJO_ANDROID_KEY_ALIAS }}
@@ -157,7 +157,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ '${{ github.event_name }}' == 'pull_request' || '${{ github.ref_name }}' == ci/* ]]; then
+          if [[ '${{ github.event_name }}' == 'pull_request' || '${{ github.ref_name }}' == ci/* || '${{ github.ref_name }}' == 'android' ]]; then
             mode='probe'
             build_type='Debug'
           else
@@ -199,6 +199,14 @@ jobs:
             "cmake;${ANDROID_CMAKE_VERSION}"
           echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
 
+      - name: Install runtime source generation tools
+        if: steps.params.outputs.mode == 'runtime'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake lld make ninja-build
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -213,6 +221,15 @@ jobs:
       - name: Build Android native dependencies
         shell: bash
         run: tools/ci/setup_android_deps.sh
+
+      - name: Checkout private runtime inputs
+        if: steps.params.outputs.mode == 'runtime'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.BANJO_ANDROID_PRIVATE_INPUTS_REPO }}
+          ssh-key: ${{ secrets.BANJO_ANDROID_PRIVATE_INPUTS_SSH_KEY }}
+          path: extra/private-inputs
+          persist-credentials: false
 
       - name: Prepare generated runtime sources
         shell: bash

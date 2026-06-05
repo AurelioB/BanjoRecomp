@@ -2,15 +2,39 @@
 set -euo pipefail
 
 MODE="${1:-runtime}"
-ARCHIVE="${BANJO_ANDROID_GENERATED_SOURCES_ARCHIVE:-}"
-URL="${BANJO_ANDROID_GENERATED_SOURCES_URL:-}"
-TOKEN="${BANJO_ANDROID_GENERATED_SOURCES_TOKEN:-}"
-TMP_ARCHIVE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/banjo-generated-sources.tar"
+PRIVATE_INPUTS_DIR="${BANJO_ANDROID_PRIVATE_INPUTS_DIR:-extra/private-inputs}"
+DECOMPRESSED_ROM="${BANJO_ANDROID_DECOMPRESSED_ROM:-${PRIVATE_INPUTS_DIR}/banjo.us.v10.decompressed.z64}"
+N64RECOMP_SOURCE_DIR="${BANJO_ANDROID_N64RECOMP_SOURCE_DIR:-lib/N64ModernRuntime/N64Recomp}"
+N64RECOMP_BUILD_DIR="${BANJO_ANDROID_N64RECOMP_BUILD_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/banjo-n64recomp-build}"
 
 have_runtime_sources() {
   (compgen -G 'RecompiledFuncs/*.c' >/dev/null || compgen -G 'RecompiledFuncs/*.cpp' >/dev/null) && \
   [[ -f rsp/n_aspMain.cpp ]] && \
   [[ -f RecompiledPatches/patches.c ]]
+}
+
+build_recomp_tools() {
+  if [[ -x ./N64Recomp && -x ./RSPRecomp ]]; then
+    echo "N64Recomp and RSPRecomp are already present."
+    return
+  fi
+
+  if [[ ! -d "$N64RECOMP_SOURCE_DIR" ]]; then
+    echo "N64Recomp source directory is missing: $N64RECOMP_SOURCE_DIR" >&2
+    exit 2
+  fi
+
+  echo "Building N64Recomp/RSPRecomp from $N64RECOMP_SOURCE_DIR."
+  cmake \
+    -S "$N64RECOMP_SOURCE_DIR" \
+    -B "$N64RECOMP_BUILD_DIR" \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_MAKE_PROGRAM=ninja
+  cmake --build "$N64RECOMP_BUILD_DIR" --config Release --target N64Recomp RSPRecomp -j "$(nproc)"
+  cp "$N64RECOMP_BUILD_DIR/N64Recomp" ./N64Recomp
+  cp "$N64RECOMP_BUILD_DIR/RSPRecomp" ./RSPRecomp
+  chmod +x ./N64Recomp ./RSPRecomp
 }
 
 if [[ "$MODE" == "probe" ]]; then
@@ -23,57 +47,42 @@ if have_runtime_sources; then
   exit 0
 fi
 
-if [[ -n "$ARCHIVE" ]]; then
-  if [[ ! -f "$ARCHIVE" ]]; then
-    echo "BANJO_ANDROID_GENERATED_SOURCES_ARCHIVE does not exist: $ARCHIVE" >&2
-    exit 2
-  fi
-  TMP_ARCHIVE="$ARCHIVE"
-elif [[ -n "$URL" ]]; then
-  echo "Downloading generated source archive."
-  if [[ -n "$TOKEN" ]]; then
-    curl -fsSL --retry 3 --retry-delay 5 -H "Authorization: Bearer $TOKEN" -o "$TMP_ARCHIVE" "$URL"
-  else
-    curl -fsSL --retry 3 --retry-delay 5 -o "$TMP_ARCHIVE" "$URL"
-  fi
-else
-  cat >&2 <<'MSG'
+if [[ ! -f "$DECOMPRESSED_ROM" ]]; then
+  cat >&2 <<MSG
 Runtime APK build needs generated BanjoRecomp sources, but they are missing.
 
-Expected at minimum:
+Expected generated files at minimum:
   RecompiledFuncs/*.c or *.cpp
   RecompiledPatches/patches.c
   rsp/n_aspMain.cpp
 
-Do not commit ROMs. For GitHub Actions, provide a private tar archive containing
-those generated source directories/files via repository secrets:
-  BANJO_ANDROID_GENERATED_SOURCES_URL
-  optional BANJO_ANDROID_GENERATED_SOURCES_TOKEN
+This workflow now follows the upstream-style generation path. Provide the private
+input repository checkout containing:
+  banjo.us.v10.decompressed.z64
 
-The archive may be .tar, .tar.gz/.tgz, .tar.xz, or .tar.zst and should extract at
-repo root. Probe builds can run without this by setting build_mode=probe.
+Expected ROM path for this run:
+  $DECOMPRESSED_ROM
+
+Probe builds can run without this by setting build_mode=probe.
 MSG
   exit 2
 fi
 
-case "$TMP_ARCHIVE" in
-  *.tar) tar -xf "$TMP_ARCHIVE" ;;
-  *.tar.gz|*.tgz) tar -xzf "$TMP_ARCHIVE" ;;
-  *.tar.xz|*.txz) tar -xJf "$TMP_ARCHIVE" ;;
-  *.tar.zst|*.tzst) tar --zstd -xf "$TMP_ARCHIVE" ;;
-  *)
-    if tar -tf "$TMP_ARCHIVE" >/dev/null 2>&1; then
-      tar -xf "$TMP_ARCHIVE"
-    else
-      echo "Unsupported generated source archive format: $TMP_ARCHIVE" >&2
-      exit 2
-    fi
-    ;;
-esac
+cp "$DECOMPRESSED_ROM" banjo.us.v10.decompressed.z64
+build_recomp_tools
+
+./N64Recomp banjo.us.rev0.toml
+./RSPRecomp n_aspMain.us.rev0.toml
+CC="${PATCHES_C_COMPILER:-clang}" LD="${PATCHES_LD:-ld.lld}" make -C patches
+./N64Recomp patches.toml
 
 if ! have_runtime_sources; then
-  echo "Generated source archive extracted, but required runtime files are still missing." >&2
+  echo "Runtime source generation completed, but required generated files are still missing." >&2
   exit 2
 fi
+
+# The decompressed ROM is needed only while generating sources. Remove it before
+# Gradle packaging so it cannot accidentally be bundled as an APK asset.
+rm -f banjo.us.v10.decompressed.z64
 
 echo "Generated runtime sources are ready."
