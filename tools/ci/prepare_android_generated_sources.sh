@@ -5,6 +5,7 @@ MODE="${1:-runtime}"
 PRIVATE_INPUTS_DIR="${BANJO_ANDROID_PRIVATE_INPUTS_DIR:-extra}"
 N64RECOMP_SOURCE_DIR="${BANJO_ANDROID_N64RECOMP_SOURCE_DIR:-lib/N64ModernRuntime/N64Recomp}"
 N64RECOMP_BUILD_DIR="${BANJO_ANDROID_N64RECOMP_BUILD_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/banjo-n64recomp-build}"
+FILE_TO_C="${BANJO_ANDROID_FILE_TO_C:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/banjo-file-to-c}"
 
 have_runtime_sources() {
   (compgen -G 'RecompiledFuncs/*.c' >/dev/null || compgen -G 'RecompiledFuncs/*.cpp' >/dev/null) && \
@@ -53,6 +54,21 @@ build_recomp_tools() {
   chmod +x ./N64Recomp ./RSPRecomp
 }
 
+build_file_to_c() {
+  if [[ -x "$FILE_TO_C" ]]; then
+    return
+  fi
+
+  local source_path="lib/rt64/src/tools/file_to_c/file_to_c.cpp"
+  if [[ ! -f "$source_path" ]]; then
+    echo "file_to_c source is missing: $source_path" >&2
+    exit 2
+  fi
+
+  echo "Building host file_to_c helper."
+  c++ -std=c++17 -O2 "$source_path" -o "$FILE_TO_C"
+}
+
 copy_private_inputs() {
   if [[ ! -d "$PRIVATE_INPUTS_DIR" ]]; then
     cat >&2 <<MSG
@@ -94,11 +110,13 @@ fi
 
 copy_private_inputs
 build_recomp_tools
+build_file_to_c
 
 ./N64Recomp banjo.us.rev0.toml
 ./RSPRecomp n_aspMain.us.rev0.toml
 CC="${PATCHES_C_COMPILER:-clang}" LD="${PATCHES_LD:-ld.lld}" make -C patches
 ./N64Recomp patches.toml
+"$FILE_TO_C" patches/patches.bin bk_patches_bin RecompiledPatches/patches_bin.c RecompiledPatches/patches_bin.h
 
 if ! have_runtime_sources; then
   echo "Runtime source generation completed, but required generated files are still missing." >&2
