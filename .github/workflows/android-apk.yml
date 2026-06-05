@@ -157,7 +157,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ '${{ github.event_name }}' == 'pull_request' || '${{ github.ref_name }}' == ci/* || '${{ github.ref_name }}' == 'android' ]]; then
+          if [[ '${{ github.event_name }}' == 'pull_request' || ('${{ github.event_name }}' == 'push' && ('${{ github.ref_name }}' == ci/* || '${{ github.ref_name }}' == 'android')) ]]; then
             mode='probe'
             build_type='Debug'
           else
