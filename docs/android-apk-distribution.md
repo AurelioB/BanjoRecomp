@@ -11,6 +11,7 @@ This repo builds Android APKs with GitHub Actions in `.github/workflows/android-
 - Verifies the APK contains `libmain.so` and `libSDL2.so` and does not contain ROM/generated-game artifacts.
 - Uploads the APK and a `.sha256` file as workflow artifacts.
 - On matching tag pushes, attaches the APK and checksum to the GitHub Release.
+- On manual dispatch with `release_version`, creates `android-v<version>`, writes release notes from commits since the previous Android tag, and lets the tag-triggered build attach the APK.
 
 ## Build modes
 
@@ -39,6 +40,8 @@ A runtime `Release` build fails fast if signing secrets are missing. That is int
 
 ## Creating a release
 
+### Local tag flow
+
 Push a tag matching `android-v*` or `v*`:
 
 ```bash
@@ -46,9 +49,22 @@ git tag android-v0.1.0
 git push origin android-v0.1.0
 ```
 
-The workflow builds the runtime release APK, uploads it as an Actions artifact, and attaches it plus the SHA256 file to the GitHub Release for that tag.
+The tag-triggered workflow builds the runtime release APK, uploads it as an Actions artifact, and attaches it plus the SHA256 file to the GitHub Release for that tag.
 
-You can also run the workflow manually from GitHub Actions and choose `runtime` or `probe`.
+### Manual GitHub Actions release flow
+
+Run the `Android APK` workflow manually from GitHub Actions on the `android` branch and set:
+
+- `release_version`: the new version, for example `0.1.1`, `v0.1.1`, or `android-v0.1.1`.
+
+When `release_version` is set, the dispatch run does not build directly. It:
+
+1. Creates and pushes `android-v<version>` at the selected branch commit.
+2. Finds the previous merged `android-v*` tag, falling back to `v*` if needed.
+3. Creates a GitHub Release whose notes list every non-merge commit between the previous tag and the new tag.
+4. Lets the normal tag-triggered workflow run build the signed runtime Release APK and attach the APK plus `.sha256` to that release.
+
+Leave `release_version` empty if you only want a manually dispatched build artifact without creating a release tag.
 
 ## Local equivalents
 

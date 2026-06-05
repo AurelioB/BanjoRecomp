@@ -41,6 +41,11 @@ on:
         required: true
         type: boolean
         default: false
+      release_version:
+        description: 'Optional: create android-v<version> release tag with changelog, then the tag build attaches the APK'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -50,8 +55,77 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release:
+    name: Create Android release tag
+    if: github.event_name == 'workflow_dispatch' && inputs.release_version != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Create tag and release notes
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_VERSION#android-v}"
+          version="${version#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "release_version must look like 1.2.3, v1.2.3, or android-v1.2.3" >&2
+            exit 2
+          fi
+          tag="android-v${version}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "Tag already exists locally: ${tag}" >&2
+            exit 2
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "Tag already exists on origin: ${tag}" >&2
+            exit 2
+          fi
+
+          previous_tag="$(git tag --merged HEAD --list 'android-v*' --sort=-creatordate | head -n1 || true)"
+          if [[ -z "$previous_tag" ]]; then
+            previous_tag="$(git tag --merged HEAD --list 'v*' --sort=-creatordate | head -n1 || true)"
+          fi
+
+          {
+            echo "## BanjoRecomp Android ${tag}"
+            echo
+            if [[ -n "$previous_tag" ]]; then
+              echo "Changes since ${previous_tag}:"
+              echo
+              git log --no-merges --pretty=format:'- %s (%h)' "${previous_tag}..HEAD"
+            else
+              echo "Changes in this release:"
+              echo
+              git log --no-merges --pretty=format:'- %s (%h)' HEAD
+            fi
+            echo
+            echo
+            echo "The APK and SHA256 checksum are attached by the tag-triggered Android APK workflow run."
+          } > release-notes.md
+
+          git tag -a "$tag" -m "BanjoRecomp Android ${tag}"
+          git push origin "$tag"
+          gh release create "$tag" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "BanjoRecomp Android ${tag}" \
+            --notes-file release-notes.md
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build Android APK
+    if: github.event_name != 'workflow_dispatch' || inputs.release_version == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 120
 
