@@ -194,6 +194,9 @@ jobs:
           fi
           apk_dir="android/app/build/outputs/apk/${build_type,,}"
           name="BanjoRecomp-android-${version_name}-${mode}-${build_type,,}.apk"
+          if [[ '${{ github.ref_type }}' == 'tag' && "$mode" == 'runtime' && "$build_type" == 'Release' ]]; then
+            name="BanjoRecompiled-v${version_name}-Android-ARM64.apk"
+          fi
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
           echo "build_type=$build_type" >> "$GITHUB_OUTPUT"
           echo "task=$task" >> "$GITHUB_OUTPUT"
