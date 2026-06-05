@@ -12,6 +12,23 @@ have_runtime_sources() {
   [[ -f RecompiledPatches/patches.c ]]
 }
 
+rom_inputs_from_toml() {
+  python3 - <<'PY'
+from pathlib import Path
+import re
+
+seen = set()
+for path in Path('.').glob('*.toml'):
+    for line in path.read_text(encoding='utf-8').splitlines():
+        match = re.match(r'\s*rom_file_path\s*=\s*"([^"]+)"', line)
+        if match:
+            value = match.group(1)
+            if value not in seen:
+                seen.add(value)
+                print(value)
+PY
+}
+
 build_recomp_tools() {
   if [[ -x ./N64Recomp && -x ./RSPRecomp ]]; then
     echo "N64Recomp and RSPRecomp are already present."
@@ -46,7 +63,7 @@ repository checkout at:
   $PRIVATE_INPUTS_DIR
 
 The private input repository should contain files expected by the public TOML
-configuration, including banjo.us.v10.decompressed.z64 at its root.
+configuration at its root.
 
 Probe builds can run without this by setting build_mode=probe.
 MSG
@@ -88,8 +105,11 @@ if ! have_runtime_sources; then
   exit 2
 fi
 
-# Private inputs are needed only while generating sources. Remove the known ROM
-# input before Gradle packaging so it cannot accidentally be bundled as an APK asset.
-rm -f banjo.us.v10.decompressed.z64
+# Private inputs are needed only while generating sources. Remove ROM inputs named
+# by the public TOML files before Gradle packaging so they cannot accidentally be
+# bundled as APK assets.
+while IFS= read -r rom_input; do
+  [[ -n "$rom_input" ]] && rm -f -- "$rom_input"
+done < <(rom_inputs_from_toml)
 
 echo "Generated runtime sources are ready."

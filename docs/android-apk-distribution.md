@@ -38,9 +38,7 @@ For a signed runtime release APK, configure these GitHub repository secrets:
 - `BANJO_ANDROID_KEY_ALIAS`: key alias.
 - `BANJO_ANDROID_KEY_PASSWORD`: key password. Optional if it matches the keystore password.
 
-The workflow also reads repository variable `BANJO_ANDROID_PRIVATE_INPUTS_REPO`, currently expected to be `AurelioB/BanjoRecomp-private-inputs`. That private repository should contain this file at its root:
-
-- `banjo.us.v10.decompressed.z64`
+The workflow also reads repository variable `BANJO_ANDROID_PRIVATE_INPUTS_REPO`, currently expected to be `AurelioB/BanjoRecomp-private-inputs`. That private repository should contain the private files expected by the public TOML configuration at its root.
 
 A runtime `Release` build fails fast if signing secrets are missing. That is intentional: unsigned release APKs are not useful for distribution.
 
