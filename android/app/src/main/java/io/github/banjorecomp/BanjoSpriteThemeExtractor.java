@@ -50,6 +50,7 @@ public final class BanjoSpriteThemeExtractor {
             putSprite(rom, byteOrder, sprites, "jinjo_pink", 0x805);
             putSprite(rom, byteOrder, sprites, "jinjo_orange", 0x806);
             putNumberGlyphs(rom, byteOrder, glyphs);
+            putLetterGlyphs(rom, byteOrder, glyphs);
         }
         Log.i(TAG, "Loaded dual-screen sprite theme from ROM: " + sprites.keySet() + ", glyphs=" + glyphs.keySet());
         return new BanjoSpriteTheme(sprites, glyphs, true);
@@ -70,11 +71,42 @@ public final class BanjoSpriteThemeExtractor {
         try {
             List<Bitmap> glyphFrames = decodeSpriteChunks(readAsset(rom, byteOrder, 0x6ED));
             for (int i = 0; i < glyphFrames.size() && i < 10; i++) {
-                glyphs.put((char) ('0' + i), cropTransparent(glyphFrames.get(i)));
+                glyphs.put((char) ('0' + i), tintYellow(cropTransparent(glyphFrames.get(i))));
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to decode bold number font sprite", e);
         }
+    }
+
+    private static void putLetterGlyphs(RandomAccessFile rom, int byteOrder, Map<Character, Bitmap> glyphs) {
+        try {
+            List<Bitmap> glyphFrames = decodeSpriteChunks(readAsset(rom, byteOrder, 0x6EC));
+            for (int i = 1; i <= 26 && i < glyphFrames.size(); i++) {
+                glyphs.put((char) ('A' + i - 1), tintYellow(cropTransparent(glyphFrames.get(i))));
+            }
+            if (glyphFrames.size() > 40) {
+                glyphs.put('\'', tintYellow(cropTransparent(glyphFrames.get(40))));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to decode bold letter font sprite", e);
+        }
+    }
+
+    private static Bitmap tintYellow(Bitmap bitmap) {
+        if (bitmap == null) {
+            return null;
+        }
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        int[] pixels = new int[width * height];
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+        for (int i = 0; i < pixels.length; i++) {
+            int alpha = (pixels[i] >>> 24) & 0xFF;
+            if (alpha != 0) {
+                pixels[i] = Color.argb(alpha, 255, 221, 34);
+            }
+        }
+        return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888);
     }
 
     private static Map<Character, Bitmap> extractGlyphs(Bitmap sheet, String characters) {

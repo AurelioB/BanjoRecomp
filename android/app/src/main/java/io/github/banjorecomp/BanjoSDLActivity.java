@@ -30,6 +30,7 @@ public class BanjoSDLActivity extends SDLActivity {
     private static final int REQUEST_SELECT_ROM = 1002;
     private static final String PROGRAM_ASSET_STAMP_FILE = ".program-assets-stamp";
     private static BanjoSDLActivity currentActivity;
+    private static int lastLoggedDualScreenMapId = Integer.MIN_VALUE;
 
     public static native void nativeSetAndroidSurfaceReady(boolean ready);
     public static native void nativeSetAppAudioActive(boolean active);
@@ -401,6 +402,10 @@ public class BanjoSDLActivity extends SDLActivity {
             return;
         }
 
+        if (levelId != lastLoggedDualScreenMapId) {
+            lastLoggedDualScreenMapId = levelId;
+            Log.i(TAG, "Dual-screen current map id=0x" + Integer.toHexString(levelId));
+        }
         DualScreenStats stats = new DualScreenStats(
                 health,
                 maxHealth,

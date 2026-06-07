@@ -201,12 +201,12 @@ public final class DualScreenStatsView extends View {
     }
 
     private void drawFooter(Canvas canvas) {
-        labelPaint.setTextSize(scale(22));
-        labelPaint.setColor(Color.argb(185, 238, 236, 255));
-        float labelX = scale(585);
-        float baseline = scale(1030);
-        canvas.drawText("LEVEL", labelX, baseline, labelPaint);
-        drawBlueNumber(canvas, Integer.toString(stats.levelId), scale(640), baseline + scale(2), scale(24));
+        String levelName = levelName(stats.levelId);
+        if (!drawSpriteTextCentered(canvas, levelName, getWidth() / 2.0f, scale(1030), scale(34), scale(960))) {
+            labelPaint.setTextSize(scale(30));
+            labelPaint.setColor(Color.rgb(255, 221, 34));
+            canvas.drawText(levelName, getWidth() / 2.0f, scale(1030), labelPaint);
+        }
     }
 
     private void drawBitmapCenter(Canvas canvas, Bitmap bitmap, float cx, float cy, float size, int alpha, String fallbackKey) {
@@ -226,10 +226,10 @@ public final class DualScreenStatsView extends View {
         numberPaint.setTextSize(textSize);
         numberPaint.setStyle(Paint.Style.STROKE);
         numberPaint.setStrokeWidth(scale(5));
-        numberPaint.setColor(Color.rgb(10, 55, 120));
+        numberPaint.setColor(Color.rgb(90, 45, 0));
         canvas.drawText(value, x, baseline, numberPaint);
         numberPaint.setStyle(Paint.Style.FILL);
-        numberPaint.setColor(Color.rgb(105, 225, 255));
+        numberPaint.setColor(Color.rgb(255, 221, 34));
         canvas.drawText(value, x, baseline, numberPaint);
     }
 
@@ -255,6 +255,172 @@ public final class DualScreenStatsView extends View {
             drewAny = true;
         }
         return drewAny;
+    }
+
+    private boolean drawSpriteTextCentered(Canvas canvas, String value, float centerX, float baseline, float height, float maxWidth) {
+        if (value == null || value.isEmpty() || !theme.hasGlyphs()) {
+            return false;
+        }
+        float width = measureSpriteText(value, height);
+        if (width <= 0.0f) {
+            return false;
+        }
+        float drawHeight = height;
+        if (width > maxWidth) {
+            drawHeight = height * maxWidth / width;
+            width = maxWidth;
+        }
+        return drawSpriteText(canvas, value, centerX - width / 2.0f, baseline, drawHeight);
+    }
+
+    private float measureSpriteText(String value, float height) {
+        float width = 0.0f;
+        boolean drewAny = false;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == ' ') {
+                width += height * 0.35f;
+                continue;
+            }
+            Bitmap glyph = theme.glyph(c);
+            if (glyph == null) {
+                return -1.0f;
+            }
+            width += height * glyph.getWidth() / (float) glyph.getHeight() + height * 0.08f;
+            drewAny = true;
+        }
+        return drewAny ? width : 0.0f;
+    }
+
+    private String levelName(int mapId) {
+        switch (mapId) {
+            case 0x02:
+            case 0x0C:
+            case 0x0E:
+                return "MUMBO'S MOUNTAIN";
+            case 0x05:
+            case 0x06:
+            case 0x07:
+            case 0x0A:
+            case 0x8F:
+                return "TREASURE TROVE COVE";
+            case 0x0B:
+            case 0x21:
+            case 0x22:
+            case 0x23:
+                return "CLANKER'S CAVERN";
+            case 0x0D:
+            case 0x10:
+            case 0x11:
+            case 0x47:
+                return "BUBBLEGLOOP SWAMP";
+            case 0x27:
+            case 0x41:
+            case 0x48:
+            case 0x53:
+            case 0x7F:
+                return "FREEZEEZY PEAK";
+            case 0x12:
+            case 0x13:
+            case 0x14:
+            case 0x15:
+            case 0x16:
+            case 0x1A:
+            case 0x92:
+                return "GOBI'S VALLEY";
+            case 0x40:
+            case 0x43:
+            case 0x44:
+            case 0x45:
+            case 0x46:
+            case 0x4A:
+            case 0x4B:
+            case 0x4C:
+            case 0x4D:
+            case 0x5A:
+            case 0x5B:
+            case 0x5C:
+            case 0x5E:
+            case 0x5F:
+            case 0x60:
+            case 0x61:
+            case 0x62:
+            case 0x63:
+            case 0x64:
+            case 0x65:
+            case 0x66:
+            case 0x67:
+            case 0x68:
+                return "CLICK CLOCK WOOD";
+            case 0x31:
+            case 0x34:
+            case 0x35:
+            case 0x36:
+            case 0x37:
+            case 0x38:
+            case 0x39:
+            case 0x3A:
+            case 0x3B:
+            case 0x3C:
+            case 0x3D:
+            case 0x3E:
+            case 0x3F:
+            case 0x8B:
+                return "RUSTY BUCKET BAY";
+            case 0x1B:
+            case 0x1C:
+            case 0x1D:
+            case 0x24:
+            case 0x25:
+            case 0x26:
+            case 0x28:
+            case 0x29:
+            case 0x2A:
+            case 0x2B:
+            case 0x2C:
+            case 0x2D:
+            case 0x2E:
+            case 0x2F:
+            case 0x30:
+            case 0x8D:
+                return "MAD MONSTER MANSION";
+            case 0x01:
+            case 0x7D:
+            case 0x7E:
+            case 0x85:
+            case 0x86:
+            case 0x87:
+            case 0x88:
+            case 0x8C:
+            case 0x94:
+            case 0x98:
+            case 0x99:
+                return "SPIRAL MOUNTAIN";
+            case 0x69:
+            case 0x6A:
+            case 0x6B:
+            case 0x6C:
+            case 0x6D:
+            case 0x6E:
+            case 0x6F:
+            case 0x70:
+            case 0x71:
+            case 0x72:
+            case 0x74:
+            case 0x75:
+            case 0x76:
+            case 0x77:
+            case 0x78:
+            case 0x79:
+            case 0x7A:
+            case 0x80:
+            case 0x8E:
+            case 0x90:
+            case 0x93:
+                return "GRUNTILDA'S LAIR";
+            default:
+                return "BANJO KAZOOIE";
+        }
     }
 
     private void drawFallbackIcon(Canvas canvas, String key, float cx, float cy, float radius, int alpha) {

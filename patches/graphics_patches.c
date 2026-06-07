@@ -47,7 +47,7 @@ extern void recomp_reset_skinning_stack();
 extern void recomp_reset_map_model_skinning();
 extern void recomp_advance_dynamic_camera_targets();
 extern s32 item_getCount(enum item_e item);
-extern s32 level_get(void);
+extern s32 map_get(void);
 extern s32 getGameMode(void);
 
 static s32 dual_screen_stats_frame_counter = 0;
@@ -94,7 +94,12 @@ static void update_dual_screen_stats(void) {
     s32 gold_feathers = item_getCount(ITEM_10_GOLD_FEATHER);
     s32 jiggies = item_getCount(ITEM_26_JIGGY_TOTAL);
     s32 mumbo_tokens = item_getCount(ITEM_25_MUMBO_TOKEN_TOTAL);
-    s32 level = level_get();
+    // For the secondary UI, pass the current map id. Java groups maps/interiors into
+    // display names; level_get() can be 0 during normal gameplay in some areas.
+    s32 level = map_get();
+    if (level == 0) {
+        level = D_8037E8E0.map;
+    }
     s32 jinjos = item_getCount(ITEM_12_JINJOS);
 
     if (++dual_screen_stats_frame_counter < 15 &&
