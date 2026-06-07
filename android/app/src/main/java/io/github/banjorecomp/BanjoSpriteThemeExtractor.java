@@ -49,7 +49,9 @@ public final class BanjoSpriteThemeExtractor {
             putSprite(rom, byteOrder, sprites, "jinjo_blue", 0x804);
             putSprite(rom, byteOrder, sprites, "jinjo_pink", 0x805);
             putSprite(rom, byteOrder, sprites, "jinjo_orange", 0x806);
-            putSprite(rom, byteOrder, sprites, "background_grass", 0x68C);
+            // 0x68C is labeled "Grass" in the decomp enum, but it is a flower sprite.
+            // Use the green weed/grass clump instead so the tiled background reads as grass.
+            putSprite(rom, byteOrder, sprites, "background_grass", 0x5CF);
             putNumberGlyphs(rom, byteOrder, glyphs);
             putLetterGlyphs(rom, byteOrder, glyphs);
         }
