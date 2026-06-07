@@ -71,7 +71,7 @@ public final class BanjoSpriteThemeExtractor {
         try {
             List<GlyphChunk> glyphChunks = decodeSpriteGlyphChunks(readAsset(rom, byteOrder, 0x6ED));
             for (int i = 0; i < glyphChunks.size() && i < 10; i++) {
-                glyphs.put((char) ('0' + i), makeGlyph(glyphChunks.get(i), 20.0f, false));
+                glyphs.put((char) ('0' + i), makeGlyph(glyphChunks.get(i), 20.0f, false, false));
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to decode bold number font sprite", e);
@@ -82,22 +82,22 @@ public final class BanjoSpriteThemeExtractor {
         try {
             List<GlyphChunk> glyphChunks = decodeSpriteGlyphChunks(readAsset(rom, byteOrder, 0x6EC));
             for (int i = 1; i <= 26 && i < glyphChunks.size(); i++) {
-                glyphs.put((char) ('A' + i - 1), makeGlyph(glyphChunks.get(i), 23.0f, false));
+                glyphs.put((char) ('A' + i - 1), makeGlyph(glyphChunks.get(i), 23.0f, false, true));
             }
             if (glyphChunks.size() > 40) {
-                glyphs.put('\'', makeGlyph(glyphChunks.get(40), 23.0f, true));
+                glyphs.put('\'', makeGlyph(glyphChunks.get(40), 23.0f, true, true));
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to decode bold letter font sprite", e);
         }
     }
 
-    private static BanjoSpriteTheme.FontGlyph makeGlyph(GlyphChunk chunk, float nominalHeight, boolean apostrophe) {
+    private static BanjoSpriteTheme.FontGlyph makeGlyph(GlyphChunk chunk, float nominalHeight, boolean apostrophe, boolean tightSpacing) {
         Bitmap bitmap = tintHoney(cropTransparent(chunk.bitmap));
         float advance = Math.max(1.0f, chunk.advance / nominalHeight);
         float baselineOffset = 0.0f;
         float topScale = apostrophe ? 0.55f : 1.0f;
-        return new BanjoSpriteTheme.FontGlyph(bitmap, advance, baselineOffset, topScale);
+        return new BanjoSpriteTheme.FontGlyph(bitmap, advance, baselineOffset, topScale, tightSpacing);
     }
 
     private static Bitmap tintHoney(Bitmap bitmap) {

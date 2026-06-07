@@ -301,6 +301,14 @@ public final class DualScreenStatsView extends View {
     }
 
     private float glyphAdvance(BanjoSpriteTheme.FontGlyph glyph, float height, float drawWidth) {
+        if (glyph.tightSpacing) {
+            // Bold letter chunks include nominal side bearing. For narrow letters like I/J,
+            // using that bearing leaves a visible blank strip before the next glyph; the
+            // original menu font overlaps from the cropped visual body instead.
+            float narrowThreshold = height * 0.46f;
+            float overlap = drawWidth < narrowThreshold ? height * 0.22f : height * 0.13f;
+            return Math.max(height * 0.08f, drawWidth - overlap);
+        }
         float minimumAdvance = height * glyph.advance - height * 0.18f;
         float visualAdvance = drawWidth - height * 0.11f;
         return Math.max(visualAdvance, minimumAdvance * 0.82f);

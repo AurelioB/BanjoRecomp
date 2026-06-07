@@ -15,12 +15,14 @@ public final class BanjoSpriteTheme {
         public final float advance;
         public final float baselineOffset;
         public final float topScale;
+        public final boolean tightSpacing;
 
-        public FontGlyph(Bitmap bitmap, float advance, float baselineOffset, float topScale) {
+        public FontGlyph(Bitmap bitmap, float advance, float baselineOffset, float topScale, boolean tightSpacing) {
             this.bitmap = bitmap;
             this.advance = advance;
             this.baselineOffset = baselineOffset;
             this.topScale = topScale;
+            this.tightSpacing = tightSpacing;
         }
     }
 
