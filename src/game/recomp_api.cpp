@@ -16,6 +16,12 @@
 #include "ultramodern/config.hpp"
 #include "../lib/N64ModernRuntime/thirdparty/xxHash/xxh3.h"
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#include <jni.h>
+#include <SDL2/SDL_system.h>
+#endif
+
 extern "C" void recomp_update_inputs(uint8_t* rdram, recomp_context* ctx) {
     recompinput::poll_inputs();
 }
@@ -196,6 +202,86 @@ extern "C" void recomp_get_analog_cam_enabled(uint8_t* rdram, recomp_context* ct
 
 extern "C" void recomp_get_note_saving_enabled(uint8_t* rdram, recomp_context* ctx) {
     _return<s32>(ctx, banjo::get_note_saving_mode() == banjo::NoteSavingMode::On);
+}
+
+extern "C" void recomp_android_update_dual_screen_stats(uint8_t* rdram, recomp_context* ctx) {
+#if defined(__ANDROID__)
+    struct AndroidDualScreenStats {
+        s32 active;
+        s32 health;
+        s32 max_health;
+        s32 lives;
+        s32 notes;
+        s32 jiggies;
+        s32 mumbo_tokens;
+        s32 level_id;
+        s32 jinjos_mask;
+    };
+
+    AndroidDualScreenStats* stats = _arg<0, AndroidDualScreenStats*>(rdram, ctx);
+    if (stats == nullptr) {
+        return;
+    }
+
+    const s32 active = stats->active;
+    const s32 health = stats->health;
+    const s32 max_health = stats->max_health;
+    const s32 lives = stats->lives;
+    const s32 notes = stats->notes;
+    const s32 jiggies = stats->jiggies;
+    const s32 mumbo_tokens = stats->mumbo_tokens;
+    const s32 level_id = stats->level_id;
+    const s32 jinjos_mask = stats->jinjos_mask;
+
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    if (env == nullptr) {
+        return;
+    }
+
+    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (activity == nullptr) {
+        __android_log_print(ANDROID_LOG_WARN, "BanjoRecomp", "Unable to update dual-screen stats: SDL activity unavailable");
+        return;
+    }
+
+    jclass activity_class = env->GetObjectClass(activity);
+    if (activity_class == nullptr) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(activity);
+        __android_log_print(ANDROID_LOG_WARN, "BanjoRecomp", "Unable to update dual-screen stats: activity class unavailable");
+        return;
+    }
+
+    jmethodID update_stats = env->GetStaticMethodID(activity_class,
+                                                    "updateDualScreenStatsFromNative",
+                                                    "(IIIIIIII)V");
+    jmethodID set_active = env->GetStaticMethodID(activity_class,
+                                                  "setDualScreenGameplayActiveFromNative",
+                                                  "(Z)V");
+    if (update_stats != nullptr) {
+        env->CallStaticVoidMethod(activity_class, update_stats,
+                                  health,
+                                  max_health,
+                                  lives,
+                                  notes,
+                                  jiggies,
+                                  mumbo_tokens,
+                                  level_id,
+                                  jinjos_mask);
+    }
+    if (set_active != nullptr) {
+        env->CallStaticVoidMethod(activity_class, set_active, active ? JNI_TRUE : JNI_FALSE);
+    }
+    if (env->ExceptionCheck()) {
+        __android_log_print(ANDROID_LOG_WARN, "BanjoRecomp", "Exception while updating dual-screen stats");
+        env->ExceptionClear();
+    }
+    env->DeleteLocalRef(activity_class);
+    env->DeleteLocalRef(activity);
+#else
+    (void)rdram;
+    (void)ctx;
+#endif
 }
 
 extern "C" void recomp_get_right_analog_inputs(uint8_t* rdram, recomp_context* ctx) {

@@ -941,6 +941,7 @@ int banjo_recomp_main(int argc, char** argv) {
     // REGISTER_FUNC(recomp_get_mouse_deltas);
     REGISTER_FUNC(recomp_get_inverted_axes);
     REGISTER_FUNC(recomp_get_analog_inverted_axes);
+    REGISTER_FUNC(recomp_android_update_dual_screen_stats);
     recompui::register_ui_exports();
     recomputil::register_data_api_exports();
     recomptheme::set_custom_theme();

@@ -46,6 +46,86 @@ extern u32 dynamic_camera_target_index;
 extern void recomp_reset_skinning_stack();
 extern void recomp_reset_map_model_skinning();
 extern void recomp_advance_dynamic_camera_targets();
+extern s32 item_getCount(enum item_e item);
+extern s32 level_get(void);
+extern s32 getGameMode(void);
+
+static s32 dual_screen_stats_frame_counter = 0;
+typedef struct AndroidDualScreenStats {
+    s32 active;
+    s32 health;
+    s32 max_health;
+    s32 lives;
+    s32 notes;
+    s32 jiggies;
+    s32 mumbo_tokens;
+    s32 level;
+    s32 jinjos_mask;
+} AndroidDualScreenStats;
+
+static AndroidDualScreenStats dual_screen_stats;
+static s32 dual_screen_last_active = -1;
+static s32 dual_screen_last_health = -1;
+static s32 dual_screen_last_max_health = -1;
+static s32 dual_screen_last_lives = -1;
+static s32 dual_screen_last_notes = -1;
+static s32 dual_screen_last_jiggies = -1;
+static s32 dual_screen_last_mumbo_tokens = -1;
+static s32 dual_screen_last_level = -1;
+static s32 dual_screen_last_jinjos = -1;
+
+static void update_dual_screen_stats(void) {
+    // Only show the secondary-screen stats during the normal gameplay mode. The prior
+    // D_8037E8E0 field read is not reliable here on Android; use the game's exported
+    // game-mode helper instead.
+    s32 active = (getGameMode() == GAME_MODE_3_NORMAL);
+    s32 health = item_getCount(ITEM_14_HEALTH);
+    s32 max_health = item_getCount(ITEM_15_HEALTH_TOTAL);
+    s32 lives = item_getCount(ITEM_16_LIFE);
+    s32 notes = item_getCount(ITEM_C_NOTE);
+    s32 jiggies = item_getCount(ITEM_26_JIGGY_TOTAL);
+    s32 mumbo_tokens = item_getCount(ITEM_25_MUMBO_TOKEN_TOTAL);
+    s32 level = level_get();
+    s32 jinjos = item_getCount(ITEM_12_JINJOS);
+
+    if (++dual_screen_stats_frame_counter < 15 &&
+            active == dual_screen_last_active &&
+            health == dual_screen_last_health &&
+            max_health == dual_screen_last_max_health &&
+            lives == dual_screen_last_lives &&
+            notes == dual_screen_last_notes &&
+            jiggies == dual_screen_last_jiggies &&
+            mumbo_tokens == dual_screen_last_mumbo_tokens &&
+            level == dual_screen_last_level &&
+            jinjos == dual_screen_last_jinjos) {
+        return;
+    }
+
+    dual_screen_stats_frame_counter = 0;
+    dual_screen_last_active = active;
+    dual_screen_last_health = health;
+    dual_screen_last_max_health = max_health;
+    dual_screen_last_lives = lives;
+    dual_screen_last_notes = notes;
+    dual_screen_last_jiggies = jiggies;
+    dual_screen_last_mumbo_tokens = mumbo_tokens;
+    dual_screen_last_level = level;
+    dual_screen_last_jinjos = jinjos;
+
+    // The Java MVP accepts a bitmask for Jinjos. Until per-color state is mapped, preserve
+    // the displayed count by setting the first N bits.
+    s32 jinjos_mask = (jinjos <= 0) ? 0 : ((1 << MIN(jinjos, 5)) - 1);
+    dual_screen_stats.active = active;
+    dual_screen_stats.health = health;
+    dual_screen_stats.max_health = max_health;
+    dual_screen_stats.lives = lives;
+    dual_screen_stats.notes = notes;
+    dual_screen_stats.jiggies = jiggies;
+    dual_screen_stats.mumbo_tokens = mumbo_tokens;
+    dual_screen_stats.level = level;
+    dual_screen_stats.jinjos_mask = jinjos_mask;
+    recomp_android_update_dual_screen_stats(&dual_screen_stats);
+}
 
 // @recomp Patched to not free anything.
 RECOMP_PATCH void graphicsCache_release(void) {
@@ -100,6 +180,9 @@ RECOMP_PATCH void game_draw(s32 arg0){
 
     // @recomp Update note saving state.
     note_saving_update();
+
+    // @recomp Publish Android secondary-screen stats when gameplay is active.
+    update_dual_screen_stats();
 
     // @recomp Track the original values.
     Mtx* mtx_start = mtx;

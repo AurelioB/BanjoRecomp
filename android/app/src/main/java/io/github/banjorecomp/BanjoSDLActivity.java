@@ -29,6 +29,7 @@ public class BanjoSDLActivity extends SDLActivity {
     private static final int REQUEST_INSTALL_MODS = 1001;
     private static final int REQUEST_SELECT_ROM = 1002;
     private static final String PROGRAM_ASSET_STAMP_FILE = ".program-assets-stamp";
+    private static BanjoSDLActivity currentActivity;
 
     public static native void nativeSetAndroidSurfaceReady(boolean ready);
     public static native void nativeSetAppAudioActive(boolean active);
@@ -36,9 +37,11 @@ public class BanjoSDLActivity extends SDLActivity {
     private boolean activityResumed;
     private boolean windowFocused;
     private boolean appAudioActive;
+    private DualScreenStatsManager dualScreenStatsManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        currentActivity = this;
         File programDir = new File(getFilesDir(), "program");
         File appDataDir = new File(getFilesDir(), "data");
 
@@ -50,6 +53,8 @@ public class BanjoSDLActivity extends SDLActivity {
 
         super.onCreate(savedInstanceState);
         applyImmersiveFullscreen();
+        dualScreenStatsManager = new DualScreenStatsManager(this);
+        dualScreenStatsManager.start();
 
         nativeSetenv("APP_PROGRAM_PATH", programDir.getAbsolutePath());
         nativeSetenv("APP_FOLDER_PATH", appDataDir.getAbsolutePath());
@@ -78,12 +83,14 @@ public class BanjoSDLActivity extends SDLActivity {
         applyImmersiveFullscreen();
         activityResumed = true;
         updateAppAudioActive();
+        updateDualScreenForeground();
     }
 
     @Override
     protected void onPause() {
         activityResumed = false;
         updateAppAudioActive();
+        updateDualScreenForeground();
         super.onPause();
     }
 
@@ -94,7 +101,20 @@ public class BanjoSDLActivity extends SDLActivity {
             applyImmersiveFullscreen();
         }
         updateAppAudioActive();
+        updateDualScreenForeground();
         super.onWindowFocusChanged(hasFocus);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (dualScreenStatsManager != null) {
+            dualScreenStatsManager.stop();
+            dualScreenStatsManager = null;
+        }
+        if (currentActivity == this) {
+            currentActivity = null;
+        }
+        super.onDestroy();
     }
 
     private void applyImmersiveFullscreen() {
@@ -133,8 +153,18 @@ public class BanjoSDLActivity extends SDLActivity {
         }
     }
 
+    private void updateDualScreenForeground() {
+        if (dualScreenStatsManager != null) {
+            dualScreenStatsManager.setAppForeground(activityResumed && windowFocused);
+        }
+    }
+
     public void openModFilePicker() {
         runOnUiThread(() -> {
+            if (dualScreenStatsManager != null) {
+                dualScreenStatsManager.hideForExternalActivity();
+            }
+
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("*/*");
@@ -155,6 +185,10 @@ public class BanjoSDLActivity extends SDLActivity {
 
     public void openRomFilePicker() {
         runOnUiThread(() -> {
+            if (dualScreenStatsManager != null) {
+                dualScreenStatsManager.hideForExternalActivity();
+            }
+
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("*/*");
@@ -305,6 +339,49 @@ public class BanjoSDLActivity extends SDLActivity {
 
     private static native void nativeOnModsSelected(String[] paths);
     private static native void nativeOnRomSelected(String path);
+
+    public static void setDualScreenGameplayActiveFromNative(boolean active) {
+        BanjoSDLActivity activity = currentActivity;
+        if (activity == null) {
+            return;
+        }
+
+        activity.runOnUiThread(() -> {
+            if (activity.dualScreenStatsManager != null) {
+                activity.dualScreenStatsManager.setGameplayActive(active);
+            }
+        });
+    }
+
+    public static void updateDualScreenStatsFromNative(
+            int health,
+            int maxHealth,
+            int lives,
+            int notes,
+            int jiggies,
+            int mumboTokens,
+            int levelId,
+            int jinjosMask) {
+        BanjoSDLActivity activity = currentActivity;
+        if (activity == null) {
+            return;
+        }
+
+        DualScreenStats stats = new DualScreenStats(
+                health,
+                maxHealth,
+                lives,
+                notes,
+                jiggies,
+                mumboTokens,
+                levelId,
+                jinjosMask);
+        activity.runOnUiThread(() -> {
+            if (activity.dualScreenStatsManager != null) {
+                activity.dualScreenStatsManager.updateStats(stats);
+            }
+        });
+    }
 
     private void extractProgramAssetsIfNeeded(File programDir) throws IOException {
         if (!assetTreeExists("program")) {
