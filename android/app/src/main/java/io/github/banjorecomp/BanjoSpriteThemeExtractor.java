@@ -32,6 +32,7 @@ public final class BanjoSpriteThemeExtractor {
 
     public static BanjoSpriteTheme extract(File romFile) throws IOException {
         Map<String, List<Bitmap>> sprites = new HashMap<>();
+        Map<Character, Bitmap> glyphs = new HashMap<>();
         try (RandomAccessFile rom = new RandomAccessFile(romFile, "r")) {
             int byteOrder = detectByteOrder(rom);
             putSprite(rom, byteOrder, sprites, "health", 0x7DD);
@@ -48,9 +49,10 @@ public final class BanjoSpriteThemeExtractor {
             putSprite(rom, byteOrder, sprites, "jinjo_blue", 0x804);
             putSprite(rom, byteOrder, sprites, "jinjo_pink", 0x805);
             putSprite(rom, byteOrder, sprites, "jinjo_orange", 0x806);
+            putNumberGlyphs(rom, byteOrder, glyphs);
         }
-        Log.i(TAG, "Loaded dual-screen sprite theme from ROM: " + sprites.keySet());
-        return new BanjoSpriteTheme(sprites, true);
+        Log.i(TAG, "Loaded dual-screen sprite theme from ROM: " + sprites.keySet() + ", glyphs=" + glyphs.keySet());
+        return new BanjoSpriteTheme(sprites, glyphs, true);
     }
 
     private static void putSprite(RandomAccessFile rom, int byteOrder, Map<String, List<Bitmap>> sprites, String key, int assetId) {
@@ -62,6 +64,66 @@ public final class BanjoSpriteThemeExtractor {
         } catch (Exception e) {
             Log.w(TAG, "Failed to decode sprite asset 0x" + Integer.toHexString(assetId) + " for " + key, e);
         }
+    }
+
+    private static void putNumberGlyphs(RandomAccessFile rom, int byteOrder, Map<Character, Bitmap> glyphs) {
+        try {
+            List<Bitmap> glyphFrames = decodeSpriteChunks(readAsset(rom, byteOrder, 0x6ED));
+            for (int i = 0; i < glyphFrames.size() && i < 10; i++) {
+                glyphs.put((char) ('0' + i), cropTransparent(glyphFrames.get(i)));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to decode bold number font sprite", e);
+        }
+    }
+
+    private static Map<Character, Bitmap> extractGlyphs(Bitmap sheet, String characters) {
+        Map<Character, Bitmap> glyphs = new HashMap<>();
+        if (sheet == null) {
+            return glyphs;
+        }
+
+        int width = sheet.getWidth();
+        int height = sheet.getHeight();
+        int index = 0;
+        int x = 0;
+        while (x < width && index < characters.length()) {
+            while (x < width && isTransparentColumn(sheet, x)) {
+                x++;
+            }
+            if (x >= width) {
+                break;
+            }
+            int startX = x;
+            while (x < width && !isTransparentColumn(sheet, x)) {
+                x++;
+            }
+            int endX = x;
+            int top = height;
+            int bottom = -1;
+            for (int gy = 0; gy < height; gy++) {
+                for (int gx = startX; gx < endX; gx++) {
+                    if (((sheet.getPixel(gx, gy) >>> 24) & 0xFF) != 0) {
+                        top = Math.min(top, gy);
+                        bottom = Math.max(bottom, gy);
+                    }
+                }
+            }
+            if (bottom >= top) {
+                glyphs.put(characters.charAt(index), Bitmap.createBitmap(sheet, startX, top, endX - startX, bottom - top + 1));
+                index++;
+            }
+        }
+        return glyphs;
+    }
+
+    private static boolean isTransparentColumn(Bitmap bitmap, int x) {
+        for (int y = 0; y < bitmap.getHeight(); y++) {
+            if (((bitmap.getPixel(x, y) >>> 24) & 0xFF) != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static byte[] readAsset(RandomAccessFile rom, int byteOrder, int assetId) throws IOException, DataFormatException {
@@ -121,6 +183,77 @@ public final class BanjoSpriteThemeExtractor {
             throw new IOException("Unexpected decompressed size " + result.length + ", expected " + expected);
         }
         return result;
+    }
+
+    private static List<Bitmap> decodeSpriteChunks(byte[] data) throws IOException {
+        int frameCount = readU16(data, 0);
+        int format = readU16(data, 2);
+        if (frameCount <= 0 || frameCount > 0x100) {
+            throw new IOException("Unsupported sprite frame count " + frameCount);
+        }
+        if (!isSupportedFormat(format)) {
+            throw new IOException("Unsupported sprite format 0x" + Integer.toHexString(format));
+        }
+
+        int relative = readU32(data, 0x10);
+        int frameOffset = 0x10 + relative + 4 * frameCount;
+        return decodeFrameChunks(data, frameOffset, format);
+    }
+
+    private static List<Bitmap> decodeFrameChunks(byte[] data, int frameOffset, int format) throws IOException {
+        int width = readU16(data, frameOffset + 4);
+        int height = readU16(data, frameOffset + 6);
+        int chunkCount = readU16(data, frameOffset + 8);
+        if (width <= 0 || height <= 0 || width > 1024 || height > 512 || chunkCount <= 0 || chunkCount > 256) {
+            throw new IOException("Invalid sprite frame dimensions/chunks");
+        }
+
+        List<Bitmap> chunks = new ArrayList<>(chunkCount);
+        int offset = frameOffset + 0x14;
+        byte[] palette = null;
+        if (format == FMT_CI4 || format == FMT_CI8) {
+            offset = align8(offset);
+            int paletteBytes = format == FMT_CI4 ? 0x20 : 0x200;
+            palette = slice(data, offset, paletteBytes);
+            offset += paletteBytes;
+        }
+
+        for (int chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+            int chunkWidth = readU16(data, offset + 4);
+            int chunkHeight = readU16(data, offset + 6);
+            offset += 8;
+            offset = align8(offset);
+            int rawSize = chunkWidth * chunkHeight * bitsPerPixel(format) / 8;
+            byte[] raw = slice(data, offset, rawSize);
+            offset += rawSize;
+            int[] chunkPixels = decodePixels(raw, palette, format, chunkWidth, chunkHeight);
+            chunks.add(Bitmap.createBitmap(chunkPixels, chunkWidth, chunkHeight, Bitmap.Config.ARGB_8888));
+        }
+        return chunks;
+    }
+
+    private static Bitmap cropTransparent(Bitmap bitmap) {
+        if (bitmap == null) {
+            return null;
+        }
+        int left = bitmap.getWidth();
+        int top = bitmap.getHeight();
+        int right = -1;
+        int bottom = -1;
+        for (int y = 0; y < bitmap.getHeight(); y++) {
+            for (int x = 0; x < bitmap.getWidth(); x++) {
+                if (((bitmap.getPixel(x, y) >>> 24) & 0xFF) != 0) {
+                    left = Math.min(left, x);
+                    right = Math.max(right, x);
+                    top = Math.min(top, y);
+                    bottom = Math.max(bottom, y);
+                }
+            }
+        }
+        if (right < left || bottom < top) {
+            return bitmap;
+        }
+        return Bitmap.createBitmap(bitmap, left, top, right - left + 1, bottom - top + 1);
     }
 
     private static List<Bitmap> decodeSprite(byte[] data) throws IOException {

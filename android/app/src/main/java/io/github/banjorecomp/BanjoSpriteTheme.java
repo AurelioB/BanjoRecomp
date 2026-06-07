@@ -8,13 +8,15 @@ import java.util.List;
 import java.util.Map;
 
 public final class BanjoSpriteTheme {
-    public static final BanjoSpriteTheme EMPTY = new BanjoSpriteTheme(Collections.emptyMap(), false);
+    public static final BanjoSpriteTheme EMPTY = new BanjoSpriteTheme(Collections.emptyMap(), Collections.emptyMap(), false);
 
     private final Map<String, List<Bitmap>> sprites;
+    private final Map<Character, Bitmap> glyphs;
     private final boolean loadedFromRom;
 
-    public BanjoSpriteTheme(Map<String, List<Bitmap>> sprites, boolean loadedFromRom) {
+    public BanjoSpriteTheme(Map<String, List<Bitmap>> sprites, Map<Character, Bitmap> glyphs, boolean loadedFromRom) {
         this.sprites = Collections.unmodifiableMap(new HashMap<>(sprites));
+        this.glyphs = Collections.unmodifiableMap(new HashMap<>(glyphs));
         this.loadedFromRom = loadedFromRom;
     }
 
@@ -32,5 +34,13 @@ public final class BanjoSpriteTheme {
         }
         int index = (int) ((timeMillis / frameMillis) % frames.size());
         return frames.get(index);
+    }
+
+    public Bitmap glyph(char c) {
+        return glyphs.get(c);
+    }
+
+    public boolean hasGlyphs() {
+        return !glyphs.isEmpty();
     }
 }

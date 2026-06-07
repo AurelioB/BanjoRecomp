@@ -203,7 +203,10 @@ public final class DualScreenStatsView extends View {
     private void drawFooter(Canvas canvas) {
         labelPaint.setTextSize(scale(22));
         labelPaint.setColor(Color.argb(185, 238, 236, 255));
-        canvas.drawText("LEVEL " + stats.levelId, scale(620), scale(1030), labelPaint);
+        float labelX = scale(585);
+        float baseline = scale(1030);
+        canvas.drawText("LEVEL", labelX, baseline, labelPaint);
+        drawBlueNumber(canvas, Integer.toString(stats.levelId), scale(640), baseline + scale(2), scale(24));
     }
 
     private void drawBitmapCenter(Canvas canvas, Bitmap bitmap, float cx, float cy, float size, int alpha, String fallbackKey) {
@@ -217,6 +220,9 @@ public final class DualScreenStatsView extends View {
     }
 
     private void drawBlueNumber(Canvas canvas, String value, float x, float baseline, float textSize) {
+        if (drawSpriteText(canvas, value, x, baseline, textSize)) {
+            return;
+        }
         numberPaint.setTextSize(textSize);
         numberPaint.setStyle(Paint.Style.STROKE);
         numberPaint.setStrokeWidth(scale(5));
@@ -225,6 +231,30 @@ public final class DualScreenStatsView extends View {
         numberPaint.setStyle(Paint.Style.FILL);
         numberPaint.setColor(Color.rgb(105, 225, 255));
         canvas.drawText(value, x, baseline, numberPaint);
+    }
+
+    private boolean drawSpriteText(Canvas canvas, String value, float x, float baseline, float height) {
+        if (value == null || value.isEmpty() || !theme.hasGlyphs()) {
+            return false;
+        }
+        float cursor = x;
+        boolean drewAny = false;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == ' ') {
+                cursor += height * 0.35f;
+                continue;
+            }
+            Bitmap glyph = theme.glyph(c);
+            if (glyph == null) {
+                return false;
+            }
+            float width = height * glyph.getWidth() / (float) glyph.getHeight();
+            canvas.drawBitmap(glyph, null, new RectF(cursor, baseline - height, cursor + width, baseline), paint);
+            cursor += width + height * 0.08f;
+            drewAny = true;
+        }
+        return drewAny;
     }
 
     private void drawFallbackIcon(Canvas canvas, String key, float cx, float cy, float radius, int alpha) {

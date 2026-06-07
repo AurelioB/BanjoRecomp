@@ -127,9 +127,10 @@ static void update_dual_screen_stats(void) {
     dual_screen_last_level = level;
     dual_screen_last_jinjos = jinjos;
 
-    // The Java MVP accepts a bitmask for Jinjos. Until per-color state is mapped, preserve
-    // the displayed count by setting the first N bits.
-    s32 jinjos_mask = (jinjos <= 0) ? 0 : ((1 << MIN(jinjos, 5)) - 1);
+    // ITEM_12_JINJOS is a bitfield for collected Jinjos, not a simple count. Mask it down
+    // to the five displayed Jinjo bits; treating the raw bitfield as a count made some
+    // two-Jinjo combinations display as all five collected.
+    s32 jinjos_mask = jinjos & 0x1F;
     dual_screen_stats.active = active;
     dual_screen_stats.health = health;
     dual_screen_stats.max_health = max_health;
