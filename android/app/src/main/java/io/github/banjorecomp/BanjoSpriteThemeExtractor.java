@@ -49,9 +49,9 @@ public final class BanjoSpriteThemeExtractor {
             putSprite(rom, byteOrder, sprites, "jinjo_blue", 0x804);
             putSprite(rom, byteOrder, sprites, "jinjo_pink", 0x805);
             putSprite(rom, byteOrder, sprites, "jinjo_orange", 0x806);
-            // 0x68C is labeled "Grass" in the decomp enum, but it is a flower sprite.
-            // Use the green weed/grass clump instead so the tiled background reads as grass.
-            putSprite(rom, byteOrder, sprites, "background_grass", 0x5CF);
+            // Use a real Mumbo's Mountain ground texture from the level model. The sprite
+            // table's labeled grass entries are foreground plants/flowers, not ground tiles.
+            putModelTexture(rom, byteOrder, sprites, "background_grass", 0x14AA, 0);
             putNumberGlyphs(rom, byteOrder, glyphs);
             putLetterGlyphs(rom, byteOrder, glyphs);
         }
@@ -67,6 +67,84 @@ public final class BanjoSpriteThemeExtractor {
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to decode sprite asset 0x" + Integer.toHexString(assetId) + " for " + key, e);
+        }
+    }
+
+    private static void putModelTexture(RandomAccessFile rom, int byteOrder, Map<String, List<Bitmap>> sprites,
+            String key, int assetId, int textureIndex) {
+        try {
+            Bitmap texture = decodeModelTexture(readAsset(rom, byteOrder, assetId), textureIndex);
+            sprites.put(key, java.util.Collections.singletonList(texture));
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to decode model texture asset 0x" + Integer.toHexString(assetId)
+                    + "[" + textureIndex + "] for " + key, e);
+        }
+    }
+
+    private static Bitmap decodeModelTexture(byte[] data, int textureIndex) throws IOException {
+        int textureListOffset = readS16(data, 8);
+        if (textureListOffset <= 0 || textureListOffset + 8 > data.length) {
+            throw new IOException("Invalid model texture-list offset");
+        }
+        int textureListSize = readU32(data, textureListOffset);
+        int textureCount = readU16(data, textureListOffset + 4);
+        if (textureIndex < 0 || textureIndex >= textureCount || textureCount > 256) {
+            throw new IOException("Invalid model texture index/count");
+        }
+        int headersOffset = textureListOffset + 8;
+        int dataOffset = headersOffset + textureCount * 16;
+        if (dataOffset > data.length) {
+            throw new IOException("Invalid model texture header table");
+        }
+
+        int headerOffset = headersOffset + textureIndex * 16;
+        int offset = readU32(data, headerOffset);
+        int modelFormat = readU16(data, headerOffset + 4);
+        int width = data[headerOffset + 8] & 0xFF;
+        int height = data[headerOffset + 9] & 0xFF;
+        if (width <= 0 || height <= 0 || width > 256 || height > 256 || offset < 0 || offset >= textureListSize) {
+            throw new IOException("Invalid model texture header");
+        }
+
+        int nextOffset = textureListSize;
+        for (int i = 0; i < textureCount; i++) {
+            int candidate = readU32(data, headersOffset + i * 16);
+            if (candidate > offset && candidate < nextOffset) {
+                nextOffset = candidate;
+            }
+        }
+        int payloadSize = nextOffset - offset;
+        byte[] payload = slice(data, dataOffset + offset, payloadSize);
+        int format = modelTextureFormat(modelFormat);
+        byte[] palette = null;
+        int pixelOffset = 0;
+        if (format == FMT_CI4) {
+            palette = slice(payload, 0, 0x20);
+            pixelOffset = 0x20;
+        } else if (format == FMT_CI8) {
+            palette = slice(payload, 0, 0x200);
+            pixelOffset = 0x200;
+        }
+        int rawSize = width * height * bitsPerPixel(format) / 8;
+        byte[] raw = slice(payload, pixelOffset, rawSize);
+        int[] pixels = decodePixels(raw, palette, format, width, height);
+        return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888);
+    }
+
+    private static int modelTextureFormat(int modelFormat) throws IOException {
+        switch (modelFormat) {
+            case 1:
+                return FMT_CI4;
+            case 2:
+                return FMT_CI8;
+            case 4:
+                return FMT_RGBA16;
+            case 8:
+                return FMT_RGBA32;
+            case 16:
+                return FMT_I8;
+            default:
+                throw new IOException("Unsupported model texture format 0x" + Integer.toHexString(modelFormat));
         }
     }
 
