@@ -78,6 +78,12 @@ public final class DualScreenStatsView extends View {
     }
 
     private void drawStartMenuBackdrop(Canvas canvas, int width, int height) {
+        Bitmap grass = theme.frame("background_grass", 0, 0);
+        if (grass != null) {
+            drawGrassTextureBackdrop(canvas, grass, width, height);
+            return;
+        }
+
         if (caveGradient == null || gradientWidth != width || gradientHeight != height) {
             gradientWidth = width;
             gradientHeight = height;
@@ -132,6 +138,26 @@ public final class DualScreenStatsView extends View {
         canvas.drawPath(path, overlayPaint);
 
         overlayPaint.setColor(Color.argb(115, 0, 0, 0));
+        canvas.drawRect(0, 0, width, height, overlayPaint);
+    }
+
+    private void drawGrassTextureBackdrop(Canvas canvas, Bitmap grass, int width, int height) {
+        float tile = scale(190);
+        paint.setShader(null);
+        paint.setAlpha(255);
+        for (float y = 0; y < height + tile; y += tile) {
+            for (float x = 0; x < width + tile; x += tile) {
+                rect.set(x, y, x + tile, y + tile);
+                canvas.drawBitmap(grass, null, rect, paint);
+            }
+        }
+        paint.setAlpha(255);
+
+        // Keep the stats readable over the high-contrast ROM texture.
+        overlayPaint.setStyle(Paint.Style.FILL);
+        overlayPaint.setColor(Color.argb(130, 0, 0, 0));
+        canvas.drawRect(0, 0, width, height, overlayPaint);
+        overlayPaint.setColor(Color.argb(90, 58, 16, 0));
         canvas.drawRect(0, 0, width, height, overlayPaint);
     }
 
