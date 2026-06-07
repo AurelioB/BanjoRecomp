@@ -250,10 +250,10 @@ public final class DualScreenStatsView extends View {
                 return false;
             }
             float glyphHeight = height * glyph.topScale;
-            float width = glyphHeight * glyph.bitmap.getWidth() / (float) glyph.bitmap.getHeight();
+            float width = glyphDrawWidth(glyph, height);
             float top = baseline - height + height * glyph.baselineOffset;
             canvas.drawBitmap(glyph.bitmap, null, new RectF(cursor, top, cursor + width, top + glyphHeight), paint);
-            cursor += height * glyph.advance - height * 0.10f;
+            cursor += glyphAdvance(glyph, height, width);
             drewAny = true;
         }
         return drewAny;
@@ -288,10 +288,22 @@ public final class DualScreenStatsView extends View {
             if (glyph == null || glyph.bitmap == null) {
                 return -1.0f;
             }
-            width += height * glyph.advance - height * 0.10f;
+            float glyphWidth = glyphDrawWidth(glyph, height);
+            width += glyphAdvance(glyph, height, glyphWidth);
             drewAny = true;
         }
         return drewAny ? width : 0.0f;
+    }
+
+    private float glyphDrawWidth(BanjoSpriteTheme.FontGlyph glyph, float height) {
+        float glyphHeight = height * glyph.topScale;
+        return glyphHeight * glyph.bitmap.getWidth() / (float) glyph.bitmap.getHeight();
+    }
+
+    private float glyphAdvance(BanjoSpriteTheme.FontGlyph glyph, float height, float drawWidth) {
+        float minimumAdvance = height * glyph.advance - height * 0.18f;
+        float visualAdvance = drawWidth - height * 0.11f;
+        return Math.max(visualAdvance, minimumAdvance * 0.82f);
     }
 
     private String levelName(int mapId) {
