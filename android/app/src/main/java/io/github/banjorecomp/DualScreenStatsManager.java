@@ -7,6 +7,11 @@ import android.util.Log;
 import android.view.Display;
 import android.view.WindowManager;
 
+import java.io.File;
+import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 public class DualScreenStatsManager implements DisplayManager.DisplayListener {
     private static final String TAG = "DualScreenStats";
 
@@ -15,6 +20,8 @@ public class DualScreenStatsManager implements DisplayManager.DisplayListener {
 
     private DualScreenStatsPresentation presentation;
     private DualScreenStats latestStats = DualScreenStats.probe();
+    private BanjoSpriteTheme spriteTheme = BanjoSpriteTheme.EMPTY;
+    private ExecutorService themeExecutor;
     private boolean started;
     private boolean appForeground;
     private boolean gameplayActive;
@@ -30,6 +37,7 @@ public class DualScreenStatsManager implements DisplayManager.DisplayListener {
         }
 
         started = true;
+        themeExecutor = Executors.newSingleThreadExecutor();
         displayManager.registerDisplayListener(this, null);
         logPresentationDisplays();
         refreshPresentation();
@@ -41,6 +49,10 @@ public class DualScreenStatsManager implements DisplayManager.DisplayListener {
         }
 
         dismissPresentation();
+        if (themeExecutor != null) {
+            themeExecutor.shutdownNow();
+            themeExecutor = null;
+        }
         if (displayManager != null) {
             displayManager.unregisterDisplayListener(this);
         }
@@ -75,6 +87,38 @@ public class DualScreenStatsManager implements DisplayManager.DisplayListener {
         if (presentation != null && gameplayActive) {
             presentation.updateStats(stats);
         }
+    }
+
+    public void loadThemeFromRom(File romFile) {
+        if (romFile == null || !romFile.isFile()) {
+            return;
+        }
+
+        ExecutorService executor = themeExecutor;
+        if (executor == null) {
+            return;
+        }
+
+        executor.execute(() -> {
+            try {
+                BanjoSpriteTheme loadedTheme = BanjoSpriteThemeExtractor.extract(romFile);
+                if (context instanceof android.app.Activity) {
+                    ((android.app.Activity) context).runOnUiThread(() -> applyTheme(loadedTheme));
+                } else {
+                    applyTheme(loadedTheme);
+                }
+            } catch (IOException e) {
+                Log.w(TAG, "Unable to build dual-screen sprite theme from selected ROM", e);
+            }
+        });
+    }
+
+    private void applyTheme(BanjoSpriteTheme theme) {
+        spriteTheme = theme == null ? BanjoSpriteTheme.EMPTY : theme;
+        if (presentation != null) {
+            presentation.setTheme(spriteTheme);
+        }
+        Log.i(TAG, "Dual-screen sprite theme loaded=" + spriteTheme.isLoadedFromRom());
     }
 
     public void hideForExternalActivity() {
@@ -137,6 +181,7 @@ public class DualScreenStatsManager implements DisplayManager.DisplayListener {
         presentation = new DualScreenStatsPresentation(context, display);
         try {
             presentation.show();
+            presentation.setTheme(spriteTheme);
             if (gameplayActive) {
                 presentation.updateStats(latestStats);
             } else {

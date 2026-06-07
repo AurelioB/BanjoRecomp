@@ -59,7 +59,14 @@ public class BanjoSDLActivity extends SDLActivity {
         nativeSetenv("APP_PROGRAM_PATH", programDir.getAbsolutePath());
         nativeSetenv("APP_FOLDER_PATH", appDataDir.getAbsolutePath());
         File bundledDevRom = new File(programDir, "dev-roms/baserom.us.v10.z64");
+        File cachedRom = findLatestCachedRom();
+        if (cachedRom != null && dualScreenStatsManager != null) {
+            dualScreenStatsManager.loadThemeFromRom(cachedRom);
+        }
         if (bundledDevRom.isFile()) {
+            if (dualScreenStatsManager != null) {
+                dualScreenStatsManager.loadThemeFromRom(bundledDevRom);
+            }
             nativeSetenv("RECOMP_AUTO_ROM_PATH", bundledDevRom.getAbsolutePath());
             Log.i(TAG, "RECOMP_AUTO_ROM_PATH=" + bundledDevRom.getAbsolutePath());
         }
@@ -236,7 +243,13 @@ public class BanjoSDLActivity extends SDLActivity {
         if (requestCode == REQUEST_SELECT_ROM) {
             String importedPath = null;
             if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
-                importedPath = copySelectedRom(data.getData());
+                File importedRom = copySelectedRom(data.getData());
+                if (importedRom != null) {
+                    importedPath = importedRom.getAbsolutePath();
+                    if (dualScreenStatsManager != null) {
+                        dualScreenStatsManager.loadThemeFromRom(importedRom);
+                    }
+                }
             }
             nativeOnRomSelected(importedPath);
             return;
@@ -258,15 +271,33 @@ public class BanjoSDLActivity extends SDLActivity {
         }
     }
 
-    private String copySelectedRom(Uri uri) {
+    private File copySelectedRom(Uri uri) {
         String displayName = getDisplayName(uri);
         if (displayName == null || displayName.isEmpty()) {
             displayName = "selected-rom.z64";
         }
 
         File importDir = new File(getCacheDir(), "rom-imports");
-        File destination = copyDocumentToCache(uri, importDir, sanitizeFilename(displayName), "selected ROM");
-        return destination != null ? destination.getAbsolutePath() : null;
+        return copyDocumentToCache(uri, importDir, sanitizeFilename(displayName), "selected ROM");
+    }
+
+    private File findLatestCachedRom() {
+        File importDir = new File(getCacheDir(), "rom-imports");
+        File[] files = importDir.listFiles();
+        if (files == null) {
+            return null;
+        }
+
+        File latest = null;
+        for (File file : files) {
+            if (file == null || !file.isFile()) {
+                continue;
+            }
+            if (latest == null || file.lastModified() > latest.lastModified()) {
+                latest = file;
+            }
+        }
+        return latest;
     }
 
     private File copyDocumentToCache(Uri uri, File importDir, String filename, String label) {
