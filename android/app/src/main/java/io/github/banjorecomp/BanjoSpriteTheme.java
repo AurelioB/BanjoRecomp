@@ -10,11 +10,25 @@ import java.util.Map;
 public final class BanjoSpriteTheme {
     public static final BanjoSpriteTheme EMPTY = new BanjoSpriteTheme(Collections.emptyMap(), Collections.emptyMap(), false);
 
+    public static final class FontGlyph {
+        public final Bitmap bitmap;
+        public final float advance;
+        public final float baselineOffset;
+        public final float topScale;
+
+        public FontGlyph(Bitmap bitmap, float advance, float baselineOffset, float topScale) {
+            this.bitmap = bitmap;
+            this.advance = advance;
+            this.baselineOffset = baselineOffset;
+            this.topScale = topScale;
+        }
+    }
+
     private final Map<String, List<Bitmap>> sprites;
-    private final Map<Character, Bitmap> glyphs;
+    private final Map<Character, FontGlyph> glyphs;
     private final boolean loadedFromRom;
 
-    public BanjoSpriteTheme(Map<String, List<Bitmap>> sprites, Map<Character, Bitmap> glyphs, boolean loadedFromRom) {
+    public BanjoSpriteTheme(Map<String, List<Bitmap>> sprites, Map<Character, FontGlyph> glyphs, boolean loadedFromRom) {
         this.sprites = Collections.unmodifiableMap(new HashMap<>(sprites));
         this.glyphs = Collections.unmodifiableMap(new HashMap<>(glyphs));
         this.loadedFromRom = loadedFromRom;
@@ -36,7 +50,7 @@ public final class BanjoSpriteTheme {
         return frames.get(index);
     }
 
-    public Bitmap glyph(char c) {
+    public FontGlyph glyph(char c) {
         return glyphs.get(c);
     }
 

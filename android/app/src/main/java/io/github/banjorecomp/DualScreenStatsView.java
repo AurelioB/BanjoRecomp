@@ -245,13 +245,15 @@ public final class DualScreenStatsView extends View {
                 cursor += height * 0.35f;
                 continue;
             }
-            Bitmap glyph = theme.glyph(c);
-            if (glyph == null) {
+            BanjoSpriteTheme.FontGlyph glyph = theme.glyph(c);
+            if (glyph == null || glyph.bitmap == null) {
                 return false;
             }
-            float width = height * glyph.getWidth() / (float) glyph.getHeight();
-            canvas.drawBitmap(glyph, null, new RectF(cursor, baseline - height, cursor + width, baseline), paint);
-            cursor += width + height * 0.08f;
+            float glyphHeight = height * glyph.topScale;
+            float width = glyphHeight * glyph.bitmap.getWidth() / (float) glyph.bitmap.getHeight();
+            float top = baseline - height + height * glyph.baselineOffset;
+            canvas.drawBitmap(glyph.bitmap, null, new RectF(cursor, top, cursor + width, top + glyphHeight), paint);
+            cursor += height * glyph.advance - height * 0.10f;
             drewAny = true;
         }
         return drewAny;
@@ -282,11 +284,11 @@ public final class DualScreenStatsView extends View {
                 width += height * 0.35f;
                 continue;
             }
-            Bitmap glyph = theme.glyph(c);
-            if (glyph == null) {
+            BanjoSpriteTheme.FontGlyph glyph = theme.glyph(c);
+            if (glyph == null || glyph.bitmap == null) {
                 return -1.0f;
             }
-            width += height * glyph.getWidth() / (float) glyph.getHeight() + height * 0.08f;
+            width += height * glyph.advance - height * 0.10f;
             drewAny = true;
         }
         return drewAny ? width : 0.0f;
