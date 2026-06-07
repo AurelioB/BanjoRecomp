@@ -5,6 +5,9 @@ public class DualScreenStats {
     public final int maxHealth;
     public final int lives;
     public final int notes;
+    public final int eggs;
+    public final int redFeathers;
+    public final int goldFeathers;
     public final int jiggies;
     public final int mumboTokens;
     public final int levelId;
@@ -15,6 +18,9 @@ public class DualScreenStats {
             int maxHealth,
             int lives,
             int notes,
+            int eggs,
+            int redFeathers,
+            int goldFeathers,
             int jiggies,
             int mumboTokens,
             int levelId,
@@ -23,6 +29,9 @@ public class DualScreenStats {
         this.maxHealth = maxHealth;
         this.lives = lives;
         this.notes = notes;
+        this.eggs = eggs;
+        this.redFeathers = redFeathers;
+        this.goldFeathers = goldFeathers;
         this.jiggies = jiggies;
         this.mumboTokens = mumboTokens;
         this.levelId = levelId;
@@ -30,6 +39,6 @@ public class DualScreenStats {
     }
 
     public static DualScreenStats probe() {
-        return new DualScreenStats(6, 8, 3, 42, 7, 12, 0, 0b10101);
+        return new DualScreenStats(6, 8, 3, 42, 5, 0, 0, 7, 12, 0, 0b10101);
     }
 }

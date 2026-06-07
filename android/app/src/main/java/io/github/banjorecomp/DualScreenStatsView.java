@@ -6,37 +6,40 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RadialGradient;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.view.View;
 
 public final class DualScreenStatsView extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-    private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint smallTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint cardPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint numberPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint overlayPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
+    private final Path path = new Path();
 
     private DualScreenStats stats;
     private boolean gameplayActive;
     private BanjoSpriteTheme theme = BanjoSpriteTheme.EMPTY;
-    private LinearGradient backgroundGradient;
+    private LinearGradient caveGradient;
+    private RadialGradient floorGlow;
     private int gradientWidth;
     private int gradientHeight;
 
     public DualScreenStatsView(Context context) {
         super(context);
-        textPaint.setColor(Color.rgb(255, 226, 71));
-        textPaint.setTextAlign(Paint.Align.CENTER);
-        textPaint.setFakeBoldText(true);
-        textPaint.setShadowLayer(5.0f, 2.0f, 4.0f, Color.rgb(70, 38, 0));
+        numberPaint.setColor(Color.rgb(100, 220, 255));
+        numberPaint.setTextAlign(Paint.Align.LEFT);
+        numberPaint.setFakeBoldText(true);
+        numberPaint.setShadowLayer(5.0f, 3.0f, 3.0f, Color.rgb(5, 20, 70));
 
-        smallTextPaint.setColor(Color.rgb(255, 246, 190));
-        smallTextPaint.setTextAlign(Paint.Align.CENTER);
-        smallTextPaint.setFakeBoldText(true);
-        smallTextPaint.setShadowLayer(4.0f, 2.0f, 3.0f, Color.BLACK);
+        labelPaint.setColor(Color.rgb(238, 236, 255));
+        labelPaint.setTextAlign(Paint.Align.CENTER);
+        labelPaint.setFakeBoldText(true);
+        labelPaint.setShadowLayer(4.0f, 2.0f, 3.0f, Color.BLACK);
 
-        cardPaint.setColor(Color.rgb(76, 42, 18));
         setBackgroundColor(Color.BLACK);
     }
 
@@ -61,127 +64,182 @@ public final class DualScreenStatsView extends View {
         super.onDraw(canvas);
         int width = getWidth();
         int height = getHeight();
-        drawBackground(canvas, width, height);
-
-        textPaint.setTextSize(scale(42));
-        canvas.drawText("BANJORECOMP", width / 2.0f, scale(80), textPaint);
-        textPaint.setTextSize(scale(34));
-        canvas.drawText("STATS", width / 2.0f, scale(124), textPaint);
+        drawStartMenuBackdrop(canvas, width, height);
 
         if (!gameplayActive || stats == null) {
-            smallTextPaint.setTextSize(scale(28));
-            canvas.drawText("Waiting for gameplay", width / 2.0f, height / 2.0f, smallTextPaint);
-            drawThemeStatus(canvas, width, height);
+            drawWaitingState(canvas, width, height);
             postInvalidateDelayed(250);
             return;
         }
 
-        float top = scale(165);
-        float rowHeight = scale(150);
-        float colWidth = width / 2.0f;
-        drawStat(canvas, "health", "HEALTH", stats.health + " / " + stats.maxHealth, 0, top, colWidth, rowHeight);
-        drawStat(canvas, "note", "NOTES", Integer.toString(stats.notes), colWidth, top, colWidth, rowHeight);
-        drawStat(canvas, "jiggy", "JIGGIES", Integer.toString(stats.jiggies), 0, top + rowHeight, colWidth, rowHeight);
-        drawStat(canvas, "mumbo", "MUMBO", Integer.toString(stats.mumboTokens), colWidth, top + rowHeight, colWidth, rowHeight);
-        drawJinjos(canvas, 0, top + rowHeight * 2.0f, width, rowHeight * 1.15f);
-
-        smallTextPaint.setTextSize(scale(20));
-        canvas.drawText("Level ID " + stats.levelId, width / 2.0f, height - scale(34), smallTextPaint);
-        drawThemeStatus(canvas, width, height);
-        postInvalidateDelayed(160);
+        long now = System.currentTimeMillis();
+        drawLivesAndHealth(canvas, now);
+        drawRightColumn(canvas, now);
+        drawJinjoRow(canvas, now);
+        drawFooter(canvas);
+        postInvalidateDelayed(130);
     }
 
-    private void drawBackground(Canvas canvas, int width, int height) {
-        if (backgroundGradient == null || gradientWidth != width || gradientHeight != height) {
+    private void drawStartMenuBackdrop(Canvas canvas, int width, int height) {
+        if (caveGradient == null || gradientWidth != width || gradientHeight != height) {
             gradientWidth = width;
             gradientHeight = height;
-            backgroundGradient = new LinearGradient(0, 0, width, height,
-                    Color.rgb(32, 15, 9), Color.rgb(5, 27, 52), Shader.TileMode.CLAMP);
+            caveGradient = new LinearGradient(0, 0, width, height,
+                    new int[] {
+                            Color.rgb(22, 6, 5),
+                            Color.rgb(108, 20, 12),
+                            Color.rgb(39, 92, 38),
+                            Color.rgb(72, 30, 7)
+                    },
+                    new float[] {0.0f, 0.38f, 0.63f, 1.0f},
+                    Shader.TileMode.CLAMP);
+            floorGlow = new RadialGradient(width * 0.52f, height * 0.72f, width * 0.48f,
+                    Color.argb(160, 245, 126, 25), Color.argb(0, 40, 5, 0), Shader.TileMode.CLAMP);
         }
-        paint.setShader(backgroundGradient);
+
+        paint.setShader(caveGradient);
         canvas.drawRect(0, 0, width, height, paint);
         paint.setShader(null);
 
-        paint.setColor(Color.argb(95, 255, 180, 40));
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(scale(6));
-        rect.set(scale(18), scale(18), width - scale(18), height - scale(18));
-        canvas.drawRoundRect(rect, scale(28), scale(28), paint);
-        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(floorGlow);
+        canvas.drawRect(0, 0, width, height, paint);
+        paint.setShader(null);
+
+        // Coarse cave-wall shapes: enough to evoke the start menu without needing a captured game frame.
+        overlayPaint.setStyle(Paint.Style.FILL);
+        overlayPaint.setColor(Color.argb(120, 5, 5, 8));
+        path.reset();
+        path.moveTo(0, 0);
+        path.lineTo(scale(260), 0);
+        path.lineTo(scale(150), scale(1030));
+        path.lineTo(0, getHeight());
+        path.close();
+        canvas.drawPath(path, overlayPaint);
+
+        overlayPaint.setColor(Color.argb(130, 12, 9, 12));
+        path.reset();
+        path.moveTo(getWidth(), 0);
+        path.lineTo(scale(970), 0);
+        path.lineTo(scale(1080), getHeight());
+        path.lineTo(getWidth(), getHeight());
+        path.close();
+        canvas.drawPath(path, overlayPaint);
+
+        overlayPaint.setColor(Color.argb(85, 0, 180, 60));
+        path.reset();
+        path.moveTo(scale(660), scale(80));
+        path.lineTo(scale(865), scale(45));
+        path.lineTo(scale(805), scale(355));
+        path.lineTo(scale(615), scale(350));
+        path.close();
+        canvas.drawPath(path, overlayPaint);
+
+        overlayPaint.setColor(Color.argb(115, 0, 0, 0));
+        canvas.drawRect(0, 0, width, height, overlayPaint);
     }
 
-    private void drawStat(Canvas canvas, String spriteKey, String label, String value,
-                          float left, float top, float width, float height) {
-        rect.set(left + scale(30), top + scale(12), left + width - scale(30), top + height - scale(16));
-        cardPaint.setColor(Color.argb(190, 74, 45, 22));
-        canvas.drawRoundRect(rect, scale(22), scale(22), cardPaint);
-        paint.setColor(Color.argb(140, 255, 210, 80));
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(scale(3));
-        canvas.drawRoundRect(rect, scale(22), scale(22), paint);
-        paint.setStyle(Paint.Style.FILL);
+    private void drawWaitingState(Canvas canvas, int width, int height) {
+        drawLivesAndHealth(canvas, System.currentTimeMillis());
+        labelPaint.setTextSize(scale(42));
+        labelPaint.setColor(Color.rgb(238, 236, 255));
+        canvas.drawText("WAITING FOR GAMEPLAY", width / 2.0f, height / 2.0f, labelPaint);
+        labelPaint.setTextSize(scale(24));
+        canvas.drawText("Stats will appear here like the start menu", width / 2.0f, height / 2.0f + scale(48), labelPaint);
+    }
 
-        Bitmap icon = theme.frame(spriteKey, System.currentTimeMillis(), 110);
-        float iconSize = scale(74);
-        if (icon != null) {
-            float ix = left + width / 2.0f - iconSize / 2.0f;
-            canvas.drawBitmap(icon, null, new RectF(ix, top + scale(18), ix + iconSize, top + scale(18) + iconSize), paint);
-        } else {
-            drawFallbackIcon(canvas, spriteKey, left + width / 2.0f, top + scale(55), iconSize * 0.55f);
+    private void drawLivesAndHealth(Canvas canvas, long now) {
+        float top = scale(86);
+        Bitmap banjo = theme.frame("banjo", now, 130);
+        if (banjo == null) {
+            banjo = theme.frame("extra_life", now, 130);
         }
+        drawBitmapCenter(canvas, banjo, scale(145), top, scale(125), 255, "banjo");
+        drawBlueNumber(canvas, Integer.toString(stats == null ? 0 : stats.lives), scale(270), top + scale(20), scale(64));
 
-        smallTextPaint.setTextSize(scale(22));
-        smallTextPaint.setColor(Color.rgb(255, 236, 178));
-        canvas.drawText(label, left + width / 2.0f, top + scale(105), smallTextPaint);
-        textPaint.setTextSize(scale(38));
-        canvas.drawText(value, left + width / 2.0f, top + scale(142), textPaint);
+        int max = stats == null ? 6 : Math.max(1, Math.min(stats.maxHealth, 12));
+        int health = stats == null ? 0 : Math.max(0, Math.min(stats.health, max));
+        float startX = scale(360);
+        float spacing = scale(57);
+        float size = scale(58);
+        for (int i = 0; i < max; i++) {
+            float x = startX + (i % 6) * spacing;
+            float y = top - scale(8) + (i / 6) * scale(58);
+            drawBitmapCenter(canvas, theme.frame("health", now + i * 20L, 130), x, y, size, i < health ? 255 : 70, "health");
+        }
     }
 
-    private void drawJinjos(Canvas canvas, float left, float top, float width, float height) {
-        rect.set(left + scale(30), top + scale(12), left + width - scale(30), top + height - scale(12));
-        cardPaint.setColor(Color.argb(180, 54, 32, 65));
-        canvas.drawRoundRect(rect, scale(24), scale(24), cardPaint);
+    private void drawRightColumn(Canvas canvas, long now) {
+        float iconX = scale(918);
+        float numberX = scale(1008);
+        float y = scale(116);
+        float gap = scale(132);
+        drawMenuStat(canvas, "note", stats.notes, iconX, numberX, y, now, scale(92));
+        drawMenuStat(canvas, "egg", stats.eggs, iconX, numberX, y + gap, now, scale(82));
+        drawMenuStat(canvas, "red_feather", stats.redFeathers, iconX, numberX, y + gap * 2.0f, now, scale(86));
+        drawMenuStat(canvas, "gold_feather", stats.goldFeathers, iconX, numberX, y + gap * 3.0f, now, scale(82));
+        drawMenuStat(canvas, "jiggy", stats.jiggies, iconX, numberX, y + gap * 4.0f, now, scale(84));
+        drawMenuStat(canvas, "mumbo", stats.mumboTokens, iconX, numberX, y + gap * 5.0f, now, scale(86));
+    }
 
-        smallTextPaint.setTextSize(scale(24));
-        smallTextPaint.setColor(Color.rgb(255, 236, 178));
-        canvas.drawText("JINJOS", left + width / 2.0f, top + scale(42), smallTextPaint);
+    private void drawMenuStat(Canvas canvas, String spriteKey, int value, float iconX, float numberX, float y, long now, float iconSize) {
+        drawBitmapCenter(canvas, theme.frame(spriteKey, now, 120), iconX, y, iconSize, 255, spriteKey);
+        drawBlueNumber(canvas, Integer.toString(value), numberX, y + scale(22), scale(66));
+    }
 
-        String[] keys = {"jinjo_yellow", "jinjo_green", "jinjo_blue", "jinjo_pink", "jinjo_orange"};
-        int[] colors = {Color.YELLOW, Color.GREEN, Color.BLUE, Color.MAGENTA, Color.rgb(255, 132, 0)};
-        float spacing = width / 6.0f;
-        float size = scale(72);
+    private void drawJinjoRow(Canvas canvas, long now) {
+        String[] keys = {"jinjo_blue", "jinjo_green", "jinjo_orange", "jinjo_pink", "jinjo_yellow"};
+        String[] fallback = {"jinjo_blue", "jinjo_green", "jinjo_orange", "jinjo_pink", "jinjo_yellow"};
+        float startX = scale(180);
+        float y = scale(895);
+        float gap = scale(130);
+        float size = scale(96);
         int mask = stats == null ? 0 : stats.jinjosMask;
         for (int i = 0; i < keys.length; i++) {
-            float cx = spacing * (i + 1);
-            float cy = top + scale(93);
-            Bitmap icon = theme.frame(keys[i], System.currentTimeMillis() + i * 47L, 120);
-            if (icon != null) {
-                paint.setAlpha((mask & (1 << i)) != 0 ? 255 : 75);
-                canvas.drawBitmap(icon, null, new RectF(cx - size / 2.0f, cy - size / 2.0f, cx + size / 2.0f, cy + size / 2.0f), paint);
-                paint.setAlpha(255);
-            } else {
-                paint.setColor((mask & (1 << i)) != 0 ? colors[i] : Color.argb(75, Color.red(colors[i]), Color.green(colors[i]), Color.blue(colors[i])));
-                canvas.drawCircle(cx, cy, size * 0.34f, paint);
-            }
+            int alpha = (mask & (1 << i)) != 0 ? 255 : 92;
+            drawBitmapCenter(canvas, theme.frame(keys[i], now + i * 45L, 120), startX + i * gap, y, size, alpha, fallback[i]);
         }
-
-        textPaint.setTextSize(scale(32));
-        canvas.drawText(Integer.bitCount(mask) + " / 5", left + width / 2.0f, top + height - scale(18), textPaint);
     }
 
-    private void drawThemeStatus(Canvas canvas, int width, int height) {
-        smallTextPaint.setTextSize(scale(16));
-        smallTextPaint.setColor(theme.isLoadedFromRom() ? Color.rgb(170, 255, 170) : Color.rgb(255, 200, 140));
-        canvas.drawText(theme.isLoadedFromRom() ? "ROM sprite theme loaded" : "Using fallback theme until ROM sprites load",
-                width / 2.0f, height - scale(12), smallTextPaint);
+    private void drawFooter(Canvas canvas) {
+        labelPaint.setTextSize(scale(22));
+        labelPaint.setColor(Color.argb(185, 238, 236, 255));
+        canvas.drawText("LEVEL " + stats.levelId, scale(620), scale(1030), labelPaint);
     }
 
-    private void drawFallbackIcon(Canvas canvas, String key, float cx, float cy, float radius) {
+    private void drawBitmapCenter(Canvas canvas, Bitmap bitmap, float cx, float cy, float size, int alpha, String fallbackKey) {
+        if (bitmap != null) {
+            paint.setAlpha(alpha);
+            canvas.drawBitmap(bitmap, null, new RectF(cx - size / 2.0f, cy - size / 2.0f, cx + size / 2.0f, cy + size / 2.0f), paint);
+            paint.setAlpha(255);
+        } else {
+            drawFallbackIcon(canvas, fallbackKey, cx, cy, size * 0.38f, alpha);
+        }
+    }
+
+    private void drawBlueNumber(Canvas canvas, String value, float x, float baseline, float textSize) {
+        numberPaint.setTextSize(textSize);
+        numberPaint.setStyle(Paint.Style.STROKE);
+        numberPaint.setStrokeWidth(scale(5));
+        numberPaint.setColor(Color.rgb(10, 55, 120));
+        canvas.drawText(value, x, baseline, numberPaint);
+        numberPaint.setStyle(Paint.Style.FILL);
+        numberPaint.setColor(Color.rgb(105, 225, 255));
+        canvas.drawText(value, x, baseline, numberPaint);
+    }
+
+    private void drawFallbackIcon(Canvas canvas, String key, float cx, float cy, float radius, int alpha) {
         int color = Color.rgb(255, 214, 65);
         if ("health".equals(key)) color = Color.rgb(240, 60, 52);
-        else if ("note".equals(key)) color = Color.rgb(55, 185, 255);
-        else if ("mumbo".equals(key)) color = Color.rgb(205, 120, 255);
-        paint.setColor(color);
+        else if ("note".equals(key)) color = Color.rgb(255, 220, 35);
+        else if ("egg".equals(key)) color = Color.rgb(100, 210, 255);
+        else if ("red_feather".equals(key)) color = Color.rgb(220, 30, 35);
+        else if ("gold_feather".equals(key)) color = Color.rgb(255, 230, 50);
+        else if ("mumbo".equals(key)) color = Color.rgb(230, 230, 245);
+        else if ("jinjo_blue".equals(key)) color = Color.rgb(40, 80, 255);
+        else if ("jinjo_green".equals(key)) color = Color.rgb(55, 255, 65);
+        else if ("jinjo_orange".equals(key)) color = Color.rgb(255, 128, 40);
+        else if ("jinjo_pink".equals(key)) color = Color.rgb(255, 70, 230);
+        paint.setColor(Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color)));
         canvas.drawCircle(cx, cy, radius, paint);
     }
 

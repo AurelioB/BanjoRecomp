@@ -212,6 +212,9 @@ extern "C" void recomp_android_update_dual_screen_stats(uint8_t* rdram, recomp_c
         s32 max_health;
         s32 lives;
         s32 notes;
+        s32 eggs;
+        s32 red_feathers;
+        s32 gold_feathers;
         s32 jiggies;
         s32 mumbo_tokens;
         s32 level_id;
@@ -228,6 +231,9 @@ extern "C" void recomp_android_update_dual_screen_stats(uint8_t* rdram, recomp_c
     const s32 max_health = stats->max_health;
     const s32 lives = stats->lives;
     const s32 notes = stats->notes;
+    const s32 eggs = stats->eggs;
+    const s32 red_feathers = stats->red_feathers;
+    const s32 gold_feathers = stats->gold_feathers;
     const s32 jiggies = stats->jiggies;
     const s32 mumbo_tokens = stats->mumbo_tokens;
     const s32 level_id = stats->level_id;
@@ -254,7 +260,7 @@ extern "C" void recomp_android_update_dual_screen_stats(uint8_t* rdram, recomp_c
 
     jmethodID update_stats = env->GetStaticMethodID(activity_class,
                                                     "updateDualScreenStatsFromNative",
-                                                    "(IIIIIIII)V");
+                                                    "(IIIIIIIIIII)V");
     jmethodID set_active = env->GetStaticMethodID(activity_class,
                                                   "setDualScreenGameplayActiveFromNative",
                                                   "(Z)V");
@@ -264,6 +270,9 @@ extern "C" void recomp_android_update_dual_screen_stats(uint8_t* rdram, recomp_c
                                   max_health,
                                   lives,
                                   notes,
+                                  eggs,
+                                  red_feathers,
+                                  gold_feathers,
                                   jiggies,
                                   mumbo_tokens,
                                   level_id,

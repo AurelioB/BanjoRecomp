@@ -57,6 +57,9 @@ typedef struct AndroidDualScreenStats {
     s32 max_health;
     s32 lives;
     s32 notes;
+    s32 eggs;
+    s32 red_feathers;
+    s32 gold_feathers;
     s32 jiggies;
     s32 mumbo_tokens;
     s32 level;
@@ -69,6 +72,9 @@ static s32 dual_screen_last_health = -1;
 static s32 dual_screen_last_max_health = -1;
 static s32 dual_screen_last_lives = -1;
 static s32 dual_screen_last_notes = -1;
+static s32 dual_screen_last_eggs = -1;
+static s32 dual_screen_last_red_feathers = -1;
+static s32 dual_screen_last_gold_feathers = -1;
 static s32 dual_screen_last_jiggies = -1;
 static s32 dual_screen_last_mumbo_tokens = -1;
 static s32 dual_screen_last_level = -1;
@@ -83,6 +89,9 @@ static void update_dual_screen_stats(void) {
     s32 max_health = item_getCount(ITEM_15_HEALTH_TOTAL);
     s32 lives = item_getCount(ITEM_16_LIFE);
     s32 notes = item_getCount(ITEM_C_NOTE);
+    s32 eggs = item_getCount(ITEM_D_EGGS);
+    s32 red_feathers = item_getCount(ITEM_F_RED_FEATHER);
+    s32 gold_feathers = item_getCount(ITEM_10_GOLD_FEATHER);
     s32 jiggies = item_getCount(ITEM_26_JIGGY_TOTAL);
     s32 mumbo_tokens = item_getCount(ITEM_25_MUMBO_TOKEN_TOTAL);
     s32 level = level_get();
@@ -94,6 +103,9 @@ static void update_dual_screen_stats(void) {
             max_health == dual_screen_last_max_health &&
             lives == dual_screen_last_lives &&
             notes == dual_screen_last_notes &&
+            eggs == dual_screen_last_eggs &&
+            red_feathers == dual_screen_last_red_feathers &&
+            gold_feathers == dual_screen_last_gold_feathers &&
             jiggies == dual_screen_last_jiggies &&
             mumbo_tokens == dual_screen_last_mumbo_tokens &&
             level == dual_screen_last_level &&
@@ -107,6 +119,9 @@ static void update_dual_screen_stats(void) {
     dual_screen_last_max_health = max_health;
     dual_screen_last_lives = lives;
     dual_screen_last_notes = notes;
+    dual_screen_last_eggs = eggs;
+    dual_screen_last_red_feathers = red_feathers;
+    dual_screen_last_gold_feathers = gold_feathers;
     dual_screen_last_jiggies = jiggies;
     dual_screen_last_mumbo_tokens = mumbo_tokens;
     dual_screen_last_level = level;
@@ -120,6 +135,9 @@ static void update_dual_screen_stats(void) {
     dual_screen_stats.max_health = max_health;
     dual_screen_stats.lives = lives;
     dual_screen_stats.notes = notes;
+    dual_screen_stats.eggs = eggs;
+    dual_screen_stats.red_feathers = red_feathers;
+    dual_screen_stats.gold_feathers = gold_feathers;
     dual_screen_stats.jiggies = jiggies;
     dual_screen_stats.mumbo_tokens = mumbo_tokens;
     dual_screen_stats.level = level;

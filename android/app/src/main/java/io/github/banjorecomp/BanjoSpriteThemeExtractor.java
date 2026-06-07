@@ -35,6 +35,11 @@ public final class BanjoSpriteThemeExtractor {
         try (RandomAccessFile rom = new RandomAccessFile(romFile, "r")) {
             int byteOrder = detectByteOrder(rom);
             putSprite(rom, byteOrder, sprites, "health", 0x7DD);
+            putSprite(rom, byteOrder, sprites, "banjo", 0x7EF);
+            putSprite(rom, byteOrder, sprites, "extra_life", 0x80E);
+            putSprite(rom, byteOrder, sprites, "egg", 0x81E);
+            putSprite(rom, byteOrder, sprites, "red_feather", 0x820);
+            putSprite(rom, byteOrder, sprites, "gold_feather", 0x81F);
             putSprite(rom, byteOrder, sprites, "note", 0x81B);
             putSprite(rom, byteOrder, sprites, "jiggy", 0x80D);
             putSprite(rom, byteOrder, sprites, "mumbo", 0x808);
