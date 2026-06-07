@@ -73,10 +73,7 @@ public final class DualScreenStatsView extends View {
         }
 
         long now = System.currentTimeMillis();
-        drawLivesAndHealth(canvas, now);
-        drawRightColumn(canvas, now);
-        drawJinjoRow(canvas, now);
-        drawFooter(canvas);
+        drawRowLayout(canvas, now);
         postInvalidateDelayed(130);
     }
 
@@ -139,7 +136,7 @@ public final class DualScreenStatsView extends View {
     }
 
     private void drawWaitingState(Canvas canvas, int width, int height) {
-        drawLivesAndHealth(canvas, System.currentTimeMillis());
+        drawHealthRow(canvas, System.currentTimeMillis(), scale(112));
         labelPaint.setTextSize(scale(42));
         labelPaint.setColor(Color.rgb(238, 236, 255));
         canvas.drawText("WAITING FOR GAMEPLAY", width / 2.0f, height / 2.0f, labelPaint);
@@ -147,52 +144,52 @@ public final class DualScreenStatsView extends View {
         canvas.drawText("Stats will appear here like the start menu", width / 2.0f, height / 2.0f + scale(48), labelPaint);
     }
 
-    private void drawLivesAndHealth(Canvas canvas, long now) {
-        float top = scale(86);
+    private void drawRowLayout(Canvas canvas, long now) {
+        drawHealthRow(canvas, now, scale(112));
+        drawTwoStatRow(canvas, now, scale(268), "note", stats.notes, scale(112), "egg", stats.eggs, scale(112));
+        drawTwoStatRow(canvas, now, scale(418), "red_feather", stats.redFeathers, scale(116), "gold_feather", stats.goldFeathers, scale(112));
+        drawTwoStatRow(canvas, now, scale(568), "jiggy", stats.jiggies, scale(118), "mumbo", stats.mumboTokens, scale(116));
+        drawJinjoRow(canvas, now, scale(742));
+        drawFooter(canvas, scale(990));
+    }
+
+    private void drawHealthRow(Canvas canvas, long now, float y) {
         Bitmap banjo = theme.frame("banjo", now, 130);
         if (banjo == null) {
             banjo = theme.frame("extra_life", now, 130);
         }
-        drawBitmapCenter(canvas, banjo, scale(145), top, scale(125), 255, "banjo");
-        drawBlueNumber(canvas, Integer.toString(stats == null ? 0 : stats.lives), scale(270), top + scale(20), scale(64));
+        drawBitmapCenter(canvas, banjo, scale(118), y, scale(154), 255, "banjo");
+        drawBlueNumber(canvas, Integer.toString(stats == null ? 0 : stats.lives), scale(220), y + scale(26), scale(76));
 
         int max = stats == null ? 6 : Math.max(1, Math.min(stats.maxHealth, 12));
         int health = stats == null ? 0 : Math.max(0, Math.min(stats.health, max));
-        float startX = scale(360);
-        float spacing = scale(57);
-        float size = scale(58);
+        float spacing = max > 8 ? scale(68) : scale(78);
+        float size = max > 8 ? scale(74) : scale(82);
+        float startX = scale(420);
         for (int i = 0; i < max; i++) {
-            float x = startX + (i % 6) * spacing;
-            float y = top - scale(8) + (i / 6) * scale(58);
+            float x = startX + i * spacing;
             drawBitmapCenter(canvas, theme.frame("health", now + i * 20L, 130), x, y, size, i < health ? 255 : 70, "health");
         }
     }
 
-    private void drawRightColumn(Canvas canvas, long now) {
-        float iconX = scale(918);
-        float numberX = scale(1008);
-        float y = scale(116);
-        float gap = scale(132);
-        drawMenuStat(canvas, "note", stats.notes, iconX, numberX, y, now, scale(92));
-        drawMenuStat(canvas, "egg", stats.eggs, iconX, numberX, y + gap, now, scale(82));
-        drawMenuStat(canvas, "red_feather", stats.redFeathers, iconX, numberX, y + gap * 2.0f, now, scale(86));
-        drawMenuStat(canvas, "gold_feather", stats.goldFeathers, iconX, numberX, y + gap * 3.0f, now, scale(82));
-        drawMenuStat(canvas, "jiggy", stats.jiggies, iconX, numberX, y + gap * 4.0f, now, scale(84));
-        drawMenuStat(canvas, "mumbo", stats.mumboTokens, iconX, numberX, y + gap * 5.0f, now, scale(86));
+    private void drawTwoStatRow(Canvas canvas, long now, float y,
+                                String leftSprite, int leftValue, float leftSize,
+                                String rightSprite, int rightValue, float rightSize) {
+        drawMenuStat(canvas, leftSprite, leftValue, scale(280), scale(380), y, now, leftSize);
+        drawMenuStat(canvas, rightSprite, rightValue, scale(760), scale(860), y, now, rightSize);
     }
 
     private void drawMenuStat(Canvas canvas, String spriteKey, int value, float iconX, float numberX, float y, long now, float iconSize) {
         drawBitmapCenter(canvas, theme.frame(spriteKey, now, 120), iconX, y, iconSize, 255, spriteKey);
-        drawBlueNumber(canvas, Integer.toString(value), numberX, y + scale(22), scale(66));
+        drawBlueNumber(canvas, Integer.toString(value), numberX, y + scale(27), scale(78));
     }
 
-    private void drawJinjoRow(Canvas canvas, long now) {
+    private void drawJinjoRow(Canvas canvas, long now, float y) {
         String[] keys = {"jinjo_blue", "jinjo_green", "jinjo_orange", "jinjo_pink", "jinjo_yellow"};
         String[] fallback = {"jinjo_blue", "jinjo_green", "jinjo_orange", "jinjo_pink", "jinjo_yellow"};
-        float startX = scale(180);
-        float y = scale(895);
-        float gap = scale(130);
-        float size = scale(96);
+        float startX = scale(245);
+        float gap = scale(185);
+        float size = scale(138);
         int mask = stats == null ? 0 : stats.jinjosMask;
         for (int i = 0; i < keys.length; i++) {
             int alpha = (mask & (1 << i)) != 0 ? 255 : 92;
@@ -200,12 +197,12 @@ public final class DualScreenStatsView extends View {
         }
     }
 
-    private void drawFooter(Canvas canvas) {
+    private void drawFooter(Canvas canvas, float baseline) {
         String levelName = levelName(stats.levelId);
-        if (!drawSpriteTextCentered(canvas, levelName, getWidth() / 2.0f, scale(1030), scale(34), scale(960))) {
-            labelPaint.setTextSize(scale(30));
+        if (!drawSpriteTextCentered(canvas, levelName, getWidth() / 2.0f, baseline, scale(58), scale(1120))) {
+            labelPaint.setTextSize(scale(52));
             labelPaint.setColor(Color.rgb(255, 221, 34));
-            canvas.drawText(levelName, getWidth() / 2.0f, scale(1030), labelPaint);
+            canvas.drawText(levelName, getWidth() / 2.0f, baseline, labelPaint);
         }
     }
 
