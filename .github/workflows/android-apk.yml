@@ -283,6 +283,28 @@ jobs:
         shell: bash
         run: tools/ci/prepare_android_generated_sources.sh '${{ steps.params.outputs.mode }}'
 
+      - name: Require signing for runtime release APKs
+        if: steps.params.outputs.mode == 'runtime' && steps.params.outputs.build_type == 'Release'
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            BANJO_ANDROID_KEYSTORE_BASE64 \
+            BANJO_ANDROID_KEYSTORE_PASSWORD \
+            BANJO_ANDROID_KEY_ALIAS
+          do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo 'Runtime release APK distribution requires Android signing secrets.' >&2
+            printf 'Missing GitHub secret: %s\n' "${missing[@]}" >&2
+            echo 'BANJO_ANDROID_KEY_PASSWORD is optional; when omitted Gradle reuses BANJO_ANDROID_KEYSTORE_PASSWORD.' >&2
+            exit 2
+          fi
+
       - name: Decode release signing key
         if: env.BANJO_ANDROID_KEYSTORE_BASE64 != ''
         shell: bash
@@ -291,14 +313,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/banjo-signing"
           printf '%s' "$BANJO_ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/banjo-signing/release.jks"
           echo "BANJO_ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/banjo-signing/release.jks" >> "$GITHUB_ENV"
-
-      - name: Require signing for runtime release APKs
-        if: steps.params.outputs.mode == 'runtime' && steps.params.outputs.build_type == 'Release' && env.BANJO_ANDROID_KEYSTORE_BASE64 == ''
-        shell: bash
-        run: |
-          echo 'Runtime release APK distribution requires signing secrets.' >&2
-          echo 'Set BANJO_ANDROID_KEYSTORE_BASE64, BANJO_ANDROID_KEYSTORE_PASSWORD, BANJO_ANDROID_KEY_ALIAS, and optionally BANJO_ANDROID_KEY_PASSWORD.' >&2
-          exit 2
 
       - name: Static guards
         shell: bash

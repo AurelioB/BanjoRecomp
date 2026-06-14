@@ -19,6 +19,7 @@ final String releaseStorePassword = System.getenv('BANJO_ANDROID_KEYSTORE_PASSWO
 final String releaseKeyAlias = System.getenv('BANJO_ANDROID_KEY_ALIAS')
 final String releaseKeyPassword = System.getenv('BANJO_ANDROID_KEY_PASSWORD') ?: releaseStorePassword
 final boolean hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+final boolean banjoAllowUnsignedRelease = (project.findProperty('banjoAllowUnsignedRelease') ?: 'false').toString().toBoolean()
 final File generatedJniLibsDir = layout.buildDirectory.dir('generated/jniLibs').get().asFile
 final File generatedProgramAssetsDir = layout.buildDirectory.dir('generated/programAssets').get().asFile
 final File generatedDevRomAssetsDir = layout.buildDirectory.dir('generated/devRomAssets').get().asFile
@@ -149,5 +150,12 @@ tasks.named('preBuild') {
     }
     if (banjoBundleDevRoms) {
         dependsOn tasks.named('copyDevRomAssets')
+    }
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    final boolean assemblingRelease = taskGraph.allTasks.any { it.name == 'assembleRelease' }
+    if (banjoRuntimeApk && assemblingRelease && !hasReleaseSigning && !banjoAllowUnsignedRelease) {
+        throw new GradleException('Runtime release APKs must be signed. Set BANJO_ANDROID_KEYSTORE_FILE, BANJO_ANDROID_KEYSTORE_PASSWORD, BANJO_ANDROID_KEY_ALIAS, and optionally BANJO_ANDROID_KEY_PASSWORD; or pass -PbanjoAllowUnsignedRelease=true for local non-distributable smoke builds only.')
     }
 }
