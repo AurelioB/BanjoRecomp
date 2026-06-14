@@ -39,7 +39,7 @@ For a signed runtime release APK, configure these GitHub repository secrets:
 - `BANJO_ANDROID_KEY_ALIAS`: key alias.
 - `BANJO_ANDROID_KEY_PASSWORD`: key password. Optional if it matches the keystore password.
 
-The configured GitHub secret names have been checked with `gh secret list --repo AurelioB/BanjoRecomp`; only the secret names were inspected, never their values. The workflow fails fast before decoding or building a runtime `Release` APK if any required signing secret name is absent or empty. `BANJO_ANDROID_KEY_PASSWORD` may be omitted only when the key password is the same as `BANJO_ANDROID_KEYSTORE_PASSWORD`.
+The configured GitHub secret names have been checked with `gh secret list --repo AurelioB/BanjoRecomp-Android`; only the secret names were inspected, never their values. The workflow fails fast before decoding or building a runtime `Release` APK if any required signing secret name is absent or empty. `BANJO_ANDROID_KEY_PASSWORD` may be omitted only when the key password is the same as `BANJO_ANDROID_KEYSTORE_PASSWORD`.
 
 The workflow also reads repository variable `BANJO_ANDROID_PRIVATE_INPUTS_REPO`, currently expected to be `AurelioB/BanjoRecomp-private-inputs`. That private repository should contain the private files expected by the public TOML configuration at its root.
 

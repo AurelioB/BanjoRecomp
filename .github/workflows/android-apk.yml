@@ -352,7 +352,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           cp '${{ steps.apk.outputs.path }}' "dist/${{ steps.params.outputs.artifact_name }}"
-          sha256sum "dist/${{ steps.params.outputs.artifact_name }}" | tee "dist/${{ steps.params.outputs.artifact_name }}.sha256"
+          (cd dist && sha256sum "${{ steps.params.outputs.artifact_name }}") | tee "dist/${{ steps.params.outputs.artifact_name }}.sha256"
           echo "apk=dist/${{ steps.params.outputs.artifact_name }}" >> "$GITHUB_OUTPUT"
           echo "sha=dist/${{ steps.params.outputs.artifact_name }}.sha256" >> "$GITHUB_OUTPUT"
 

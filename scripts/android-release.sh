@@ -126,7 +126,7 @@ if [[ "$dry_run" == true ]]; then
 fi
 
 gh workflow run android-apk.yml \
-  --repo AurelioB/BanjoRecomp \
+  --repo AurelioB/BanjoRecomp-Android \
   --ref "$release_ref" \
   -f build_mode=runtime \
   -f build_type=Release \
@@ -134,4 +134,4 @@ gh workflow run android-apk.yml \
   -f release_version="$version_name"
 
 echo "Release workflow dispatched for $tag_name."
-echo "Watch runs with: gh run list --repo AurelioB/BanjoRecomp --workflow 'Android APK' --limit 5"
+echo "Watch runs with: gh run list --repo AurelioB/BanjoRecomp-Android --workflow 'Android APK' --limit 5"
