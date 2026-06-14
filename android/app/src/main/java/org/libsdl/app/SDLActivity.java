@@ -1312,6 +1312,10 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
     }
 
     public static boolean handleKeyEvent(View v, int keyCode, KeyEvent event, InputConnection ic) {
+        if (io.github.banjorecomp.BanjoSDLActivity.handleDualScreenDebugKeyEvent(keyCode, event)) {
+            return true;
+        }
+
         int deviceId = event.getDeviceId();
         int source = event.getSource();
 

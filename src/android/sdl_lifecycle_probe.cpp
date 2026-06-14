@@ -23,13 +23,14 @@ void set_dual_screen_probe_active(bool active) {
 
     jmethodID update_stats = env->GetStaticMethodID(activity_class,
                                                     "updateDualScreenStatsFromNative",
-                                                    "(IIIIIIII)V");
+                                                    "(IIIIIIIIIIIIIIIIII)V");
     jmethodID set_active = env->GetStaticMethodID(activity_class,
                                                   "setDualScreenGameplayActiveFromNative",
                                                   "(Z)V");
     if (update_stats != nullptr) {
         env->CallStaticVoidMethod(activity_class, update_stats,
-                                  6, 8, 3, 42, 7, 12, 0x10, 0b10101);
+                                  active ? 1 : 0, 6, 8, 3, 42, 5, 0, 0, 7, 12, 0x10, 0b10101,
+                                  7, 42, 4, 1, 0, 0);
     }
     if (set_active != nullptr) {
         env->CallStaticVoidMethod(activity_class, set_active, active ? JNI_TRUE : JNI_FALSE);

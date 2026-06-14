@@ -26,7 +26,6 @@ public final class BanjoSpriteThemeExtractor {
     private static final int FMT_I8 = 0x0040;
     private static final int FMT_RGBA16 = 0x0400;
     private static final int FMT_RGBA32 = 0x0800;
-
     private BanjoSpriteThemeExtractor() {
     }
 
@@ -43,15 +42,22 @@ public final class BanjoSpriteThemeExtractor {
             putSprite(rom, byteOrder, sprites, "gold_feather", 0x81F);
             putSprite(rom, byteOrder, sprites, "note", 0x81B);
             putSprite(rom, byteOrder, sprites, "jiggy", 0x80D);
+            putSprite(rom, byteOrder, sprites, "empty_honeycomb", 0x7DC);
             putSprite(rom, byteOrder, sprites, "mumbo", 0x808);
             putSprite(rom, byteOrder, sprites, "jinjo_yellow", 0x802);
             putSprite(rom, byteOrder, sprites, "jinjo_green", 0x803);
             putSprite(rom, byteOrder, sprites, "jinjo_blue", 0x804);
             putSprite(rom, byteOrder, sprites, "jinjo_pink", 0x805);
             putSprite(rom, byteOrder, sprites, "jinjo_orange", 0x806);
-            // Use a real Mumbo's Mountain ground texture from the level model. The sprite
-            // table's labeled grass entries are foreground plants/flowers, not ground tiles.
+            // Mumbo's Mountain is the canonical fallback backdrop when a map-specific texture
+            // is missing or too broken to decode.
             putModelTexture(rom, byteOrder, sprites, "background_grass", 0x14AA, 0);
+            putModelTexture(rom, byteOrder, sprites, "level_portrait_mm", 0x14AA, 0);
+            putModelTextureTiles(rom, byteOrder, sprites, "title_logo_tile_", 0x54D);
+
+            // Dynamic map-specific backdrop candidates. Start with texture index 0 for each
+            // map model from core2/mapModel.c; ugly choices can be overridden later per map.
+            putMapBackdropTextures(rom, byteOrder, sprites);
             putNumberGlyphs(rom, byteOrder, glyphs);
             putLetterGlyphs(rom, byteOrder, glyphs);
         }
@@ -73,12 +79,62 @@ public final class BanjoSpriteThemeExtractor {
     private static void putModelTexture(RandomAccessFile rom, int byteOrder, Map<String, List<Bitmap>> sprites,
             String key, int assetId, int textureIndex) {
         try {
-            Bitmap texture = decodeModelTexture(readAsset(rom, byteOrder, assetId), textureIndex);
+            Bitmap texture = flipVertical(decodeModelTexture(readAsset(rom, byteOrder, assetId), textureIndex));
             sprites.put(key, java.util.Collections.singletonList(texture));
         } catch (Exception e) {
             Log.w(TAG, "Failed to decode model texture asset 0x" + Integer.toHexString(assetId)
                     + "[" + textureIndex + "] for " + key, e);
         }
+    }
+
+    private static void putMapBackdropTextures(RandomAccessFile rom, int byteOrder,
+            Map<String, List<Bitmap>> sprites) {
+        Map<Integer, Bitmap> decodedAssetTextures = new HashMap<>();
+        for (DualScreenDebugAreas.Area area : DualScreenDebugAreas.AREAS) {
+            int cacheKey = (area.assetId << 8) | (area.textureIndex & 0xFF);
+            Bitmap texture = decodedAssetTextures.get(cacheKey);
+            if (texture == null) {
+                try {
+                    texture = flipVertical(decodeModelTexture(readAsset(rom, byteOrder, area.assetId), area.textureIndex));
+                    decodedAssetTextures.put(cacheKey, texture);
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to decode dynamic map backdrop asset 0x"
+                            + Integer.toHexString(area.assetId) + "[" + area.textureIndex + "] for map 0x"
+                            + Integer.toHexString(area.mapId), e);
+                    continue;
+                }
+            }
+            sprites.put(DualScreenDebugAreas.backdropKey(area.mapId), java.util.Collections.singletonList(texture));
+        }
+    }
+
+    private static void putModelTextureTiles(RandomAccessFile rom, int byteOrder, Map<String, List<Bitmap>> sprites,
+            String keyPrefix, int assetId) {
+        try {
+            List<Bitmap> textures = decodeModelTextures(readAsset(rom, byteOrder, assetId));
+            for (int i = 0; i < textures.size(); i++) {
+                sprites.put(keyPrefix + i, java.util.Collections.singletonList(textures.get(i)));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to decode model texture tiles from asset 0x" + Integer.toHexString(assetId)
+                    + " for " + keyPrefix, e);
+        }
+    }
+
+    private static List<Bitmap> decodeModelTextures(byte[] data) throws IOException {
+        int textureListOffset = readS16(data, 8);
+        if (textureListOffset <= 0 || textureListOffset + 8 > data.length) {
+            throw new IOException("Invalid model texture-list offset");
+        }
+        int textureCount = readU16(data, textureListOffset + 4);
+        if (textureCount <= 0 || textureCount > 256) {
+            throw new IOException("Invalid model texture count");
+        }
+        List<Bitmap> textures = new ArrayList<>(textureCount);
+        for (int i = 0; i < textureCount; i++) {
+            textures.add(decodeModelTexture(data, i));
+        }
+        return textures;
     }
 
     private static Bitmap decodeModelTexture(byte[] data, int textureIndex) throws IOException {
@@ -131,6 +187,21 @@ public final class BanjoSpriteThemeExtractor {
         return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888);
     }
 
+    private static Bitmap flipVertical(Bitmap bitmap) {
+        if (bitmap == null) {
+            return null;
+        }
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        int[] src = new int[width * height];
+        int[] dst = new int[width * height];
+        bitmap.getPixels(src, 0, width, 0, 0, width, height);
+        for (int y = 0; y < height; y++) {
+            System.arraycopy(src, y * width, dst, (height - 1 - y) * width, width);
+        }
+        return Bitmap.createBitmap(dst, width, height, Bitmap.Config.ARGB_8888);
+    }
+
     private static int modelTextureFormat(int modelFormat) throws IOException {
         switch (modelFormat) {
             case 1:
@@ -167,6 +238,9 @@ public final class BanjoSpriteThemeExtractor {
             }
             if (glyphChunks.size() > 40) {
                 glyphs.put('\'', makeGlyph(glyphChunks.get(40), 23.0f, true, true));
+            }
+            if (glyphChunks.size() > 39) {
+                glyphs.put('/', makeGlyph(glyphChunks.get(39), 23.0f, false, true));
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to decode bold letter font sprite", e);

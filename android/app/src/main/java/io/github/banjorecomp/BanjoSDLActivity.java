@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -29,8 +30,13 @@ public class BanjoSDLActivity extends SDLActivity {
     private static final int REQUEST_INSTALL_MODS = 1001;
     private static final int REQUEST_SELECT_ROM = 1002;
     private static final String PROGRAM_ASSET_STAMP_FILE = ".program-assets-stamp";
+    private static final String EXTRA_DUAL_SCREEN_PREVIEW = "dualscreen_preview";
+    private static final String EXTRA_DUAL_SCREEN_PREVIEW_CLEAR = "dualscreen_preview_clear";
+    private static final String EXTRA_DUAL_SCREEN_PREVIEW_MAP = "dualscreen_preview_map";
     private static BanjoSDLActivity currentActivity;
     private static int lastLoggedDualScreenMapId = Integer.MIN_VALUE;
+    private static Boolean lastPostedDualScreenGameplayActive;
+    private static DualScreenStats lastPostedDualScreenStats;
 
     public static native void nativeSetAndroidSurfaceReady(boolean ready);
     public static native void nativeSetAppAudioActive(boolean active);
@@ -43,6 +49,8 @@ public class BanjoSDLActivity extends SDLActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         currentActivity = this;
+        lastPostedDualScreenGameplayActive = null;
+        lastPostedDualScreenStats = null;
         File programDir = new File(getFilesDir(), "program");
         File appDataDir = new File(getFilesDir(), "data");
 
@@ -73,6 +81,14 @@ public class BanjoSDLActivity extends SDLActivity {
         }
         Log.i(TAG, "APP_PROGRAM_PATH=" + programDir.getAbsolutePath());
         Log.i(TAG, "APP_FOLDER_PATH=" + appDataDir.getAbsolutePath());
+        handleDualScreenPreviewIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleDualScreenPreviewIntent(intent);
     }
 
     @Override
@@ -111,6 +127,37 @@ public class BanjoSDLActivity extends SDLActivity {
         updateAppAudioActive();
         updateDualScreenForeground();
         super.onWindowFocusChanged(hasFocus);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (handleDualScreenDebugKeyEvent(event.getKeyCode(), event)) {
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (handleDualScreenDebugKeyEvent(keyCode, event)) {
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    public static boolean handleDualScreenDebugKeyEvent(int keyCode, KeyEvent event) {
+        BanjoSDLActivity activity = currentActivity;
+        if (!BuildConfig.BANJO_DUAL_SCREEN_DEBUG || activity == null || activity.dualScreenStatsManager == null
+                || event == null || event.getAction() != KeyEvent.ACTION_DOWN || event.getRepeatCount() != 0) {
+            return false;
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            return activity.dualScreenStatsManager.debugStepPreviewArea(1);
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            return activity.dualScreenStatsManager.debugStepPreviewArea(-1);
+        }
+        return false;
     }
 
     @Override
@@ -164,6 +211,63 @@ public class BanjoSDLActivity extends SDLActivity {
     private void updateDualScreenForeground() {
         if (dualScreenStatsManager != null) {
             dualScreenStatsManager.setAppForeground(activityResumed && windowFocused);
+        }
+    }
+
+    private void handleDualScreenPreviewIntent(Intent intent) {
+        if (!BuildConfig.BANJO_DUAL_SCREEN_DEBUG || intent == null || dualScreenStatsManager == null) {
+            return;
+        }
+        if (intent.getBooleanExtra(EXTRA_DUAL_SCREEN_PREVIEW_CLEAR, false)) {
+            dualScreenStatsManager.clearPreviewMode();
+            return;
+        }
+        if (!intent.getBooleanExtra(EXTRA_DUAL_SCREEN_PREVIEW, false)
+                && !intent.hasExtra(EXTRA_DUAL_SCREEN_PREVIEW_MAP)) {
+            return;
+        }
+        int mapId = parsePreviewMapId(intent.getExtras() == null
+                        ? null
+                        : intent.getExtras().get(EXTRA_DUAL_SCREEN_PREVIEW_MAP),
+                0x01);
+        dualScreenStatsManager.previewStatsBackground(mapId);
+    }
+
+    private int parsePreviewMapId(Object value, int fallback) {
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        if (!(value instanceof String) || ((String) value).trim().isEmpty()) {
+            return fallback;
+        }
+        String trimmed = ((String) value).trim();
+        try {
+            return Integer.decode(trimmed);
+        } catch (NumberFormatException e) {
+            String lower = trimmed.toLowerCase(java.util.Locale.US);
+            switch (lower) {
+                case "spiral":
+                case "spiral_mountain":
+                case "sm":
+                    return 0x01;
+                case "mumbo":
+                case "mumbos_mountain":
+                case "mm":
+                    return 0x02;
+                case "treasure_trove":
+                case "treasure_trove_cove":
+                case "ttc":
+                    return 0x07;
+                case "gruntys_lair":
+                case "grunty_lair":
+                case "lair":
+                case "gl":
+                    return 0x69;
+                default:
+                    Log.w(TAG, "Unknown dual-screen preview map '" + trimmed + "', using 0x"
+                            + Integer.toHexString(fallback));
+                    return fallback;
+            }
         }
     }
 
@@ -377,6 +481,16 @@ public class BanjoSDLActivity extends SDLActivity {
         if (activity == null) {
             return;
         }
+        synchronized (BanjoSDLActivity.class) {
+            if (lastPostedDualScreenGameplayActive != null
+                    && lastPostedDualScreenGameplayActive.booleanValue() == active) {
+                return;
+            }
+            lastPostedDualScreenGameplayActive = active;
+            if (!active) {
+                lastPostedDualScreenStats = null;
+            }
+        }
 
         activity.runOnUiThread(() -> {
             if (activity.dualScreenStatsManager != null) {
@@ -386,6 +500,7 @@ public class BanjoSDLActivity extends SDLActivity {
     }
 
     public static void updateDualScreenStatsFromNative(
+            int displayMode,
             int health,
             int maxHealth,
             int lives,
@@ -396,7 +511,13 @@ public class BanjoSDLActivity extends SDLActivity {
             int jiggies,
             int mumboTokens,
             int levelId,
-            int jinjosMask) {
+            int jinjosMask,
+            int totalJiggies,
+            int totalNotes,
+            int totalHoneycombs,
+            int reachedGruntysLair,
+            int selectedGameNumber,
+            int gameTransitionPhase) {
         BanjoSDLActivity activity = currentActivity;
         if (activity == null) {
             return;
@@ -407,6 +528,7 @@ public class BanjoSDLActivity extends SDLActivity {
             Log.i(TAG, "Dual-screen current map id=0x" + Integer.toHexString(levelId));
         }
         DualScreenStats stats = new DualScreenStats(
+                displayMode,
                 health,
                 maxHealth,
                 lives,
@@ -417,7 +539,19 @@ public class BanjoSDLActivity extends SDLActivity {
                 jiggies,
                 mumboTokens,
                 levelId,
-                jinjosMask);
+                jinjosMask,
+                totalJiggies,
+                totalNotes,
+                totalHoneycombs,
+                reachedGruntysLair != 0,
+                selectedGameNumber,
+                gameTransitionPhase);
+        synchronized (BanjoSDLActivity.class) {
+            if (lastPostedDualScreenStats != null && lastPostedDualScreenStats.sameValues(stats)) {
+                return;
+            }
+            lastPostedDualScreenStats = stats;
+        }
         activity.runOnUiThread(() -> {
             if (activity.dualScreenStatsManager != null) {
                 activity.dualScreenStatsManager.updateStats(stats);

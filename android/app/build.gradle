@@ -12,6 +12,7 @@ final boolean banjoProbe = (project.findProperty('banjoProbe') ?: 'false').toStr
 final boolean banjoBundleDevRoms = (project.findProperty('banjoBundleDevRoms') ?: project.findProperty('banjoDevFull') ?: 'false').toString().toBoolean()
 final boolean banjoRuntimeApk = !banjoProbe
 final boolean banjoNativeOptimized = (project.findProperty('banjoNativeOptimized') ?: (banjoRuntimeApk ? 'true' : 'false')).toString().toBoolean()
+final boolean banjoDualScreenDebug = (project.findProperty('banjoDualScreenDebug') ?: 'false').toString().toBoolean()
 final String banjoVersionName = System.getenv('BANJO_ANDROID_VERSION_NAME') ?: (banjoProbe ? '0.1.0-android-sdl-probe' : (banjoBundleDevRoms ? '0.1.0-android-dev-roms' : '0.1.0-android-runtime'))
 final int banjoVersionCode = (System.getenv('BANJO_ANDROID_VERSION_CODE') ?: project.findProperty('banjoVersionCode') ?: '1').toString().toInteger()
 final String releaseStoreFile = System.getenv('BANJO_ANDROID_KEYSTORE_FILE')
@@ -34,6 +35,7 @@ android {
         targetSdk 36
         versionCode banjoVersionCode
         versionName banjoVersionName
+        buildConfigField 'boolean', 'BANJO_DUAL_SCREEN_DEBUG', banjoDualScreenDebug.toString()
 
         externalNativeBuild {
             cmake {
@@ -61,6 +63,10 @@ android {
                 }
             }
         }
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     signingConfigs {

@@ -3,13 +3,32 @@ package io.github.banjorecomp;
 import android.app.Presentation;
 import android.os.Bundle;
 import android.view.Display;
+import android.view.KeyEvent;
 import android.view.Window;
 
 public class DualScreenStatsPresentation extends Presentation {
-    private DualScreenStatsView statsView;
+    public interface DebugKeyHandler {
+        boolean onDebugKey(int keyCode, KeyEvent event);
+    }
 
-    public DualScreenStatsPresentation(android.content.Context outerContext, Display display) {
+    private DualScreenStatsView statsView;
+    private final DebugKeyHandler debugKeyHandler;
+    private final DualScreenStatsView.DebugAreaButtonHandler debugAreaButtonHandler;
+
+    public DualScreenStatsPresentation(android.content.Context outerContext, Display display,
+                                       DebugKeyHandler debugKeyHandler,
+                                       DualScreenStatsView.DebugAreaButtonHandler debugAreaButtonHandler) {
         super(outerContext, display);
+        this.debugKeyHandler = debugKeyHandler;
+        this.debugAreaButtonHandler = debugAreaButtonHandler;
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (debugKeyHandler != null && debugKeyHandler.onDebugKey(event.getKeyCode(), event)) {
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     @Override
@@ -21,9 +40,15 @@ public class DualScreenStatsPresentation extends Presentation {
             window.setBackgroundDrawableResource(android.R.color.black);
         }
 
-        statsView = new DualScreenStatsView(getContext());
+        statsView = new DualScreenStatsView(getContext(), debugAreaButtonHandler);
         setContentView(statsView);
-        showBlank();
+        showLogo();
+    }
+
+    public void showLogo() {
+        if (statsView != null) {
+            statsView.showLogo();
+        }
     }
 
     public void showBlank() {

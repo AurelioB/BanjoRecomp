@@ -5,6 +5,7 @@ import android.content.Context;
 import android.hardware.display.DisplayManager;
 import android.util.Log;
 import android.view.Display;
+import android.view.KeyEvent;
 import android.view.WindowManager;
 
 import java.io.File;
@@ -25,6 +26,11 @@ public class DualScreenStatsManager implements DisplayManager.DisplayListener {
     private boolean started;
     private boolean appForeground;
     private boolean gameplayActive;
+    private int displayMode = DualScreenStats.DISPLAY_LOGO;
+    private boolean previewMode;
+    private int debugAreaIndex;
+    private int lastLoggedDisplayMode = -1;
+    private int lastLoggedGameTransitionPhase = -1;
 
     public DualScreenStatsManager(Context context) {
         this.context = context;
@@ -75,6 +81,9 @@ public class DualScreenStatsManager implements DisplayManager.DisplayListener {
 
         gameplayActive = active;
         Log.i(TAG, "Gameplay active=" + active);
+        if (!active && displayMode == DualScreenStats.DISPLAY_STATS) {
+            displayMode = DualScreenStats.DISPLAY_LOGO;
+        }
         refreshPresentation();
     }
 
@@ -83,10 +92,90 @@ public class DualScreenStatsManager implements DisplayManager.DisplayListener {
             return;
         }
 
-        latestStats = stats;
-        if (presentation != null && gameplayActive) {
-            presentation.updateStats(stats);
+        if (previewMode) {
+            return;
         }
+
+        latestStats = stats;
+        displayMode = stats.displayMode;
+        gameplayActive = displayMode == DualScreenStats.DISPLAY_STATS;
+        if (stats.displayMode != lastLoggedDisplayMode
+                || stats.gameTransitionPhase != lastLoggedGameTransitionPhase) {
+            lastLoggedDisplayMode = stats.displayMode;
+            lastLoggedGameTransitionPhase = stats.gameTransitionPhase;
+            Log.i(TAG, "Dual-screen mode=" + stats.displayMode
+                    + " transition=" + stats.gameTransitionPhase
+                    + " map=0x" + Integer.toHexString(stats.levelId));
+        }
+        if (presentation != null) {
+            applyPresentationMode();
+        }
+    }
+
+    public void previewStatsBackground(int mapId) {
+        int index = DualScreenDebugAreas.indexForMapId(mapId);
+        if (index >= 0) {
+            debugAreaIndex = index;
+        }
+        previewMode = true;
+        latestStats = new DualScreenStats(
+                DualScreenStats.DISPLAY_STATS,
+                6,
+                8,
+                3,
+                42,
+                12,
+                5,
+                3,
+                7,
+                12,
+                mapId,
+                0b10101,
+                67,
+                612,
+                18,
+                true,
+                0,
+                DualScreenStats.GAME_TRANSITION_NONE);
+        displayMode = DualScreenStats.DISPLAY_STATS;
+        gameplayActive = true;
+        Log.i(TAG, "Previewing dual-screen stats background for map id=0x" + Integer.toHexString(mapId));
+        refreshPresentation();
+        if (presentation != null) {
+            applyPresentationMode();
+        }
+    }
+
+    public boolean debugStepPreviewArea(int direction) {
+        if (!BuildConfig.BANJO_DUAL_SCREEN_DEBUG || DualScreenDebugAreas.AREAS.length == 0) {
+            return false;
+        }
+
+        int currentIndex = previewMode ? debugAreaIndex : DualScreenDebugAreas.indexForMapId(latestStats.levelId);
+        if (currentIndex < 0) {
+            currentIndex = 0;
+        }
+        debugAreaIndex = (currentIndex + direction) % DualScreenDebugAreas.AREAS.length;
+        if (debugAreaIndex < 0) {
+            debugAreaIndex += DualScreenDebugAreas.AREAS.length;
+        }
+        DualScreenDebugAreas.Area area = DualScreenDebugAreas.AREAS[debugAreaIndex];
+        previewStatsBackground(area.mapId);
+        Log.i(TAG, "Debug preview area " + (debugAreaIndex + 1) + "/" + DualScreenDebugAreas.AREAS.length
+                + ": map=0x" + Integer.toHexString(area.mapId)
+                + " asset=0x" + Integer.toHexString(area.assetId)
+                + " texture=" + area.textureIndex
+                + " name=" + area.name);
+        return true;
+    }
+
+    public void clearPreviewMode() {
+        if (!previewMode) {
+            return;
+        }
+        previewMode = false;
+        Log.i(TAG, "Cleared dual-screen stats background preview mode");
+        applyPresentationMode();
     }
 
     public void loadThemeFromRom(File romFile) {
@@ -169,30 +258,50 @@ public class DualScreenStatsManager implements DisplayManager.DisplayListener {
 
         if (presentation != null && presentation.getDisplay() != null
                 && presentation.getDisplay().getDisplayId() == display.getDisplayId()) {
-            if (gameplayActive) {
-                presentation.updateStats(latestStats);
-            } else {
-                presentation.showBlank();
-            }
+            applyPresentationMode();
             return;
         }
 
         dismissPresentation();
-        presentation = new DualScreenStatsPresentation(context, display);
+        presentation = new DualScreenStatsPresentation(context, display, this::handleDebugKey, this::handleDebugAreaButton);
         try {
             presentation.show();
             presentation.setTheme(spriteTheme);
-            if (gameplayActive) {
-                presentation.updateStats(latestStats);
-            } else {
-                presentation.showBlank();
-            }
+            applyPresentationMode();
             Log.i(TAG, "Showing dual-screen stats surface on display "
                     + display.getDisplayId() + " / " + display.getName());
         } catch (WindowManager.InvalidDisplayException e) {
             Log.w(TAG, "Unable to show secondary display presentation", e);
             presentation = null;
         }
+    }
+
+    private boolean handleDebugAreaButton(int direction) {
+        if (!BuildConfig.BANJO_DUAL_SCREEN_DEBUG || direction == 0) {
+            return false;
+        }
+        return debugStepPreviewArea(direction > 0 ? 1 : -1);
+    }
+
+    private boolean handleDebugKey(int keyCode, KeyEvent event) {
+        if (!BuildConfig.BANJO_DUAL_SCREEN_DEBUG || event == null
+                || event.getAction() != KeyEvent.ACTION_DOWN || event.getRepeatCount() != 0) {
+            return false;
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            return debugStepPreviewArea(1);
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            return debugStepPreviewArea(-1);
+        }
+        return false;
+    }
+
+    private void applyPresentationMode() {
+        if (presentation == null) {
+            return;
+        }
+        presentation.updateStats(latestStats);
     }
 
     private void dismissPresentation() {

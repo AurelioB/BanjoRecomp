@@ -207,6 +207,7 @@ extern "C" void recomp_get_note_saving_enabled(uint8_t* rdram, recomp_context* c
 extern "C" void recomp_android_update_dual_screen_stats(uint8_t* rdram, recomp_context* ctx) {
 #if defined(__ANDROID__)
     struct AndroidDualScreenStats {
+        s32 display_mode;
         s32 active;
         s32 health;
         s32 max_health;
@@ -219,6 +220,12 @@ extern "C" void recomp_android_update_dual_screen_stats(uint8_t* rdram, recomp_c
         s32 mumbo_tokens;
         s32 level_id;
         s32 jinjos_mask;
+        s32 total_jiggies;
+        s32 total_notes;
+        s32 total_honeycombs;
+        s32 reached_gruntys_lair;
+        s32 selected_game_number;
+        s32 game_transition_phase;
     };
 
     AndroidDualScreenStats* stats = _arg<0, AndroidDualScreenStats*>(rdram, ctx);
@@ -226,6 +233,7 @@ extern "C" void recomp_android_update_dual_screen_stats(uint8_t* rdram, recomp_c
         return;
     }
 
+    const s32 display_mode = stats->display_mode;
     const s32 active = stats->active;
     const s32 health = stats->health;
     const s32 max_health = stats->max_health;
@@ -238,6 +246,12 @@ extern "C" void recomp_android_update_dual_screen_stats(uint8_t* rdram, recomp_c
     const s32 mumbo_tokens = stats->mumbo_tokens;
     const s32 level_id = stats->level_id;
     const s32 jinjos_mask = stats->jinjos_mask;
+    const s32 total_jiggies = stats->total_jiggies;
+    const s32 total_notes = stats->total_notes;
+    const s32 total_honeycombs = stats->total_honeycombs;
+    const s32 reached_gruntys_lair = stats->reached_gruntys_lair;
+    const s32 selected_game_number = stats->selected_game_number;
+    const s32 game_transition_phase = stats->game_transition_phase;
 
     JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
     if (env == nullptr) {
@@ -260,12 +274,13 @@ extern "C" void recomp_android_update_dual_screen_stats(uint8_t* rdram, recomp_c
 
     jmethodID update_stats = env->GetStaticMethodID(activity_class,
                                                     "updateDualScreenStatsFromNative",
-                                                    "(IIIIIIIIIII)V");
+                                                    "(IIIIIIIIIIIIIIIIII)V");
     jmethodID set_active = env->GetStaticMethodID(activity_class,
                                                   "setDualScreenGameplayActiveFromNative",
                                                   "(Z)V");
     if (update_stats != nullptr) {
         env->CallStaticVoidMethod(activity_class, update_stats,
+                                  display_mode,
                                   health,
                                   max_health,
                                   lives,
@@ -276,7 +291,13 @@ extern "C" void recomp_android_update_dual_screen_stats(uint8_t* rdram, recomp_c
                                   jiggies,
                                   mumbo_tokens,
                                   level_id,
-                                  jinjos_mask);
+                                  jinjos_mask,
+                                  total_jiggies,
+                                  total_notes,
+                                  total_honeycombs,
+                                  reached_gruntys_lair,
+                                  selected_game_number,
+                                  game_transition_phase);
     }
     if (set_active != nullptr) {
         env->CallStaticVoidMethod(activity_class, set_active, active ? JNI_TRUE : JNI_FALSE);
