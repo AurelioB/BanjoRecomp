@@ -56,16 +56,12 @@ Verification added:
 - `tools/check_android_port_guards.py` checks the Android guards and stub-renderer path without requiring an Android NDK.
 - `nfd_null.cpp` compiles standalone with host `g++` against the NFD header.
 
-Current environment/tooling status:
+Historical environment/tooling status from the first Android shell slice:
 
 - User-local Android build tooling is installed and sourceable via `~/.config/android-build-env.sh`.
 - Android arm64 SDL2 and Freetype prefixes are available under `~/Android/prefixes`.
-- `tools/build_android_shell.sh` configures and builds the first Android native shell slice.
-- Verified output: `build/hermes-android-shell/libBanjoAndroidShell.so` is an Android arm64 shared object for API 24.
-- `android/` now contains a minimal Gradle/AGP Android app that builds an APK with:
-  - `MainActivity.java`
-  - `libBanjoAndroidShell.so`
-  - `libSDL2.so`
+- The retired text-view shell path used `tools/build_android_shell.sh`, `MainActivity.java`, and `libBanjoAndroidShell.so` for the first native-load probe.
+- Current Gradle APK modes use `BanjoSDLActivity` and `libmain.so`: default runtime, gated bundled-dev-ROM runtime, or opt-in SDL lifecycle probe.
 - Verified APK output: `android/app/build/outputs/apk/debug/app-debug.apk`.
 - Verified the APK does not package ROM/generation artifacts matching `z64`, `rom`, `RecompiledFuncs`, `n_aspMain`, or `RecompiledPatches`.
 
@@ -78,7 +74,9 @@ Current project-content blocker:
 - Host `N64Recomp` and `RSPRecomp` have been built and copied to the repo root, but generation cannot run until a legally owned decompressed `banjo.us.v10.decompressed.z64` is present.
 - Keep those generated files/ROM artifacts out of commits unless the project/legal policy explicitly allows them.
 
-## Device smoke test
+## Device smoke test (retired text-view shell)
+
+This was the initial native-load smoke test only. It has been superseded by the SDLActivity lifecycle probe and runtime APK modes below; do not use `MainActivity`/`libBanjoAndroidShell` as a current build target.
 
 The debug APK was installed and launched on an AYN Thor connected over ADB (`arm64-v8a`, Android API 33).
 
@@ -86,7 +84,7 @@ Verification:
 
 - `gradle --no-daemon :app:assembleDebug` succeeds from `android/`.
 - `adb install -r android/app/build/outputs/apk/debug/app-debug.apk` succeeds.
-- `adb shell am start -n io.github.banjorecomp/.MainActivity` launches the app.
+- The retired activity launch command started the old text-view shell.
 - Logcat shows:
   - `native shell library loaded; SDL compiled version 2.32.10`
   - `native probe OK; SDL linked version 2.32.10`
@@ -116,7 +114,7 @@ Current interpretation:
 
 - The generated full native Android binary now cross-compiles and links.
 - A standalone shell execution is useful for linker/startup triage but is not a valid final app lifecycle test; SDL audio/video need proper Android Activity/JNI lifecycle integration.
-- The Gradle APK is still the safe shell-only APK and still contains only `libBanjoAndroidShell.so` and `libSDL2.so`; it does not package ROM/generated game artifacts.
+- This standalone shell execution was useful for linker/startup triage only. Current Gradle APKs use `BanjoSDLActivity` and `libmain.so`; the old text-view Gradle shell was retired.
 
 ROM/generated artifacts remain local-only and must stay out of commits/packages unless project/legal policy explicitly allows them.
 
@@ -128,7 +126,7 @@ Next milestone was to prove the proper Android SDL lifecycle, without packaging 
 - Added `io.github.banjorecomp.BanjoSDLActivity`, derived from `org.libsdl.app.SDLActivity`.
 - Added `src/android/sdl_lifecycle_probe.cpp`, exporting `SDL_main` from `libmain.so`.
 - Added `BANJO_ANDROID_SDL_LIFECYCLE_PROBE` so shell-only Android builds can build a lifecycle probe instead of the old JNI text-view probe.
-- Updated the debug Android app to launch `.BanjoSDLActivity` and package only:
+- Updated the debug Android app to launch `io.github.banjorecomp.BanjoSDLActivity` and package only:
   - `lib/arm64-v8a/libSDL2.so`
   - `lib/arm64-v8a/libmain.so`
 
@@ -138,7 +136,7 @@ Verification on AYN Thor over ADB:
 - `python3 tools/check_android_port_guards.py` succeeds.
 - APK artifact scan finds no `baserom`, `decompressed`, `.z64`, `banjo.us`, `RecompiledFuncs`, or `RecompiledPatches` entries.
 - `adb install -r android/app/build/outputs/apk/debug/app-debug.apk` succeeds.
-- `adb shell am start -n io.github.banjorecomp/.BanjoSDLActivity` succeeds.
+- `adb shell am start -n com.aure.banjorecomp/io.github.banjorecomp.BanjoSDLActivity` succeeds.
 - Logcat confirms the lifecycle path:
   - `nativeSetupJNI()`
   - `surfaceCreated()` / `surfaceChanged()`
@@ -157,7 +155,7 @@ Aure explicitly approved including the ROM and derived/generated files only for 
 
 Implemented gated dev path:
 
-- Gradle property `-PbanjoDevFull=true` switches the debug APK from shell/probe mode to the full `SDLActivity` runtime path.
+- Gradle property `-PbanjoDevFull=true` is now a backwards-compatible alias for the full `SDLActivity` runtime path with bundled dev ROMs; the default debug APK is also the full runtime path, but without bundled ROMs.
 - CMake option `BANJO_ANDROID_DEV_FULL_APK=ON` builds the real Banjo runtime as Android `libmain.so` and exports `SDL_main`.
 - `android/app/build.gradle` passes Android SDL2/Freetype prefixes, disables unneeded Zstd programs/tests/dictbuilder for Android, packages `libSDL2.so`, and copies dev-full files under `assets/program/` only for the dev-full build.
 - Dev-full packaging now includes non-ROM program resources (`assets/` and `recompcontrollerdb.txt`) plus the dev-only ROM files under `assets/program/dev-roms/`.
@@ -178,7 +176,7 @@ Dev-full APK verification on AYN Thor over ADB:
   - `assets/program/dev-roms/banjo.us.v10.decompressed.z64`
   - `assets/program/dev-roms/baserom.us.v10.z64`
 - `adb install -r android/app/build/outputs/apk/debug/app-debug.apk` succeeds.
-- `adb shell am start -n io.github.banjorecomp/.BanjoSDLActivity` succeeds.
+- `adb shell am start -n com.aure.banjorecomp/io.github.banjorecomp.BanjoSDLActivity` succeeds.
 - Logcat confirms SDL lifecycle, program asset extraction, and real runtime entry:
   - `Copied program assets to /data/user/0/io.github.banjorecomp/files/program`
   - `nativeSetupJNI()`
@@ -197,7 +195,7 @@ Next practical milestone: investigate why the full UI/launcher is still not visi
 The previous dev-full APK was still using the Android `NullRendererContext` because Gradle did not pass `BANJO_ANDROID_RENDERER_STUB=OFF` for `-PbanjoDevFull=true`. That made the black-window result expected rather than evidence about RT64. The Gradle CMake args now explicitly set:
 
 - `BANJO_ANDROID_RENDERER_STUB=OFF` for `-PbanjoDevFull=true`
-- `BANJO_ANDROID_RENDERER_STUB=ON` for the default shell/probe build
+- `BANJO_ANDROID_RENDERER_STUB=ON` only for the explicit `-PbanjoProbe=true` SDL lifecycle probe build
 
 First real-renderer launch result:
 
@@ -211,7 +209,7 @@ Post-fix verification on AYN Thor over ADB:
 
 - `gradle --no-daemon :app:assembleDebug -PbanjoDevFull=true` succeeds.
 - `adb install -r android/app/build/outputs/apk/debug/app-debug.apk` succeeds.
-- `adb shell am start -n io.github.banjorecomp/.BanjoSDLActivity` succeeds.
+- `adb shell am start -n com.aure.banjorecomp/io.github.banjorecomp.BanjoSDLActivity` succeeds.
 - The process remains alive after launch (`pidof io.github.banjorecomp` returned PID `20012`).
 - Filtered logcat shows SDLActivity lifecycle, Vulkan layer discovery, and Adreno Vulkan driver startup:
   - `Running main function SDL_main from library .../libmain.so`
@@ -240,7 +238,7 @@ Verification on AYN Thor over ADB:
 
 - `gradle --no-daemon :app:assembleDebug -PbanjoDevFull=true` succeeds.
 - `adb install -r android/app/build/outputs/apk/debug/app-debug.apk` succeeds.
-- `adb shell am start -n io.github.banjorecomp/.BanjoSDLActivity` succeeds.
+- `adb shell am start -n com.aure.banjorecomp/io.github.banjorecomp.BanjoSDLActivity` succeeds.
 - Screenshot `/home/hermes/tmp/banjo-identity-transform-6s.png` shows the Banjo-Recompiled launcher, correctly oriented in landscape, with menu entries `Load ROM`, `Controls`, `Settings`, `Mods`, and `Exit`.
 - Filtered logcat shows the expected RmlUi lifecycle and repeated rendering:
   - `Rml::Initialise complete`

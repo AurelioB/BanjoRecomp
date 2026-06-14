@@ -295,8 +295,39 @@ void update_gfx(void*) {
 static SDL_AudioCVT audio_convert;
 static SDL_AudioDeviceID audio_device = 0;
 #if defined(__ANDROID__)
-static std::atomic_bool android_app_audio_active{true};
-static std::mutex android_audio_device_mutex;
+struct AndroidAudioLifecycle {
+    // Single owner for Android AudioTrack-backed SDL device state. Android focus/resume
+    // callbacks, AI queueing, queued-frame queries, frequency changes, and reset_audio all
+    // take this mutex before touching audio_device or the SDL audio converter inputs.
+    std::atomic_bool active{true};
+    std::mutex mutex;
+
+    bool is_active() const {
+        return active.load(std::memory_order_acquire);
+    }
+
+    void set_active(bool should_be_active) {
+        active.store(should_be_active, std::memory_order_release);
+    }
+
+    std::unique_lock<std::mutex> lock_active_device() {
+        if (!is_active()) {
+            return {};
+        }
+
+        std::unique_lock lock{mutex};
+        if (!is_active() || audio_device == 0) {
+            lock.unlock();
+        }
+        return lock;
+    }
+
+    SDL_AudioDeviceID open_locked(uint32_t freq, const char* context);
+    void close_locked();
+    void apply_active_state(bool should_be_active);
+};
+
+static AndroidAudioLifecycle android_audio;
 #endif
 
 // Samples per channel per second.
@@ -336,7 +367,7 @@ SDL_AudioSpec make_audio_spec(uint32_t freq) {
 }
 
 #if defined(__ANDROID__)
-SDL_AudioDeviceID open_android_audio_device_locked(uint32_t freq, const char* context) {
+SDL_AudioDeviceID AndroidAudioLifecycle::open_locked(uint32_t freq, const char* context) {
     SDL_AudioSpec spec_desired = make_audio_spec(freq);
     SDL_AudioDeviceID device = SDL_OpenAudioDevice(nullptr, false, &spec_desired, nullptr, 0);
     if (device == 0) {
@@ -345,7 +376,7 @@ SDL_AudioDeviceID open_android_audio_device_locked(uint32_t freq, const char* co
     return device;
 }
 
-void close_android_audio_device_locked() {
+void AndroidAudioLifecycle::close_locked() {
     if (audio_device != 0) {
         SDL_PauseAudioDevice(audio_device, 1);
         SDL_ClearQueuedAudio(audio_device);
@@ -353,15 +384,30 @@ void close_android_audio_device_locked() {
         audio_device = 0;
     }
 }
+
+void AndroidAudioLifecycle::apply_active_state(bool should_be_active) {
+    set_active(should_be_active);
+
+    std::lock_guard audio_lock{mutex};
+    if (should_be_active) {
+        if (audio_device == 0) {
+            audio_device = open_locked(output_sample_rate, "reopening");
+        }
+        if (audio_device != 0) {
+            SDL_ClearQueuedAudio(audio_device);
+            SDL_PauseAudioDevice(audio_device, 0);
+        }
+    }
+    else {
+        close_locked();
+    }
+}
 #endif
 
 void queue_samples(int16_t* audio_data, size_t sample_count) {
 #if defined(__ANDROID__)
-    if (!android_app_audio_active.load(std::memory_order_acquire)) {
-        return;
-    }
-    std::lock_guard audio_lock{android_audio_device_mutex};
-    if (audio_device == 0) {
+    auto audio_lock = android_audio.lock_active_device();
+    if (!audio_lock.owns_lock()) {
         return;
     }
 #endif
@@ -439,11 +485,8 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
 
 size_t get_frames_remaining() {
 #if defined(__ANDROID__)
-    if (!android_app_audio_active.load(std::memory_order_acquire)) {
-        return 0;
-    }
-    std::lock_guard audio_lock{android_audio_device_mutex};
-    if (audio_device == 0) {
+    auto audio_lock = android_audio.lock_active_device();
+    if (!audio_lock.owns_lock()) {
         return 0;
     }
 #endif
@@ -489,7 +532,7 @@ void update_audio_converter() {
 
 void set_frequency(uint32_t freq) {
 #if defined(__ANDROID__)
-    std::lock_guard audio_lock{android_audio_device_mutex};
+    std::lock_guard audio_lock{android_audio.mutex};
 #endif
     sample_rate = freq;
     
@@ -505,24 +548,13 @@ extern "C" __attribute__((visibility("default"))) void Java_io_github_banjorecom
 
 extern "C" __attribute__((visibility("default"))) void Java_io_github_banjorecomp_BanjoSDLActivity_nativeSetAppAudioActive(JNIEnv*, jclass, jboolean active) {
     const bool should_be_active = active == JNI_TRUE;
-    android_app_audio_active.store(should_be_active, std::memory_order_release);
-    ultramodern::set_app_paused(!should_be_active);
 
-    {
-        std::lock_guard audio_lock{android_audio_device_mutex};
-        if (should_be_active) {
-            if (audio_device == 0) {
-                audio_device = open_android_audio_device_locked(output_sample_rate, "reopening");
-            }
-            if (audio_device != 0) {
-                SDL_ClearQueuedAudio(audio_device);
-                SDL_PauseAudioDevice(audio_device, 0);
-            }
-        }
-        else {
-            close_android_audio_device_locked();
-        }
-    }
+    // This intentionally gates the runtime VI scheduler, not the emulated N64 clock.
+    // Timer/count state still advances while Android has no focus; the pause prevents
+    // more VI/audio/render work from being scheduled in recents and resumes against
+    // current time after focus returns.
+    ultramodern::set_vi_scheduler_paused(!should_be_active);
+    android_audio.apply_active_state(should_be_active);
 
     __android_log_print(ANDROID_LOG_INFO, "BanjoRecomp", "Android app active=%s", should_be_active ? "true" : "false");
 }
@@ -530,14 +562,23 @@ extern "C" __attribute__((visibility("default"))) void Java_io_github_banjorecom
 
 bool reset_audio(uint32_t output_freq) {
 #if defined(__ANDROID__)
-    std::lock_guard audio_lock{android_audio_device_mutex};
-    close_android_audio_device_locked();
-    audio_device = open_android_audio_device_locked(output_freq, "opening");
+    std::lock_guard audio_lock{android_audio.mutex};
+    android_audio.close_locked();
+    if (android_audio.is_active()) {
+        audio_device = android_audio.open_locked(output_freq, "opening");
+    }
 #else
     SDL_AudioSpec spec_desired = make_audio_spec(output_freq);
     audio_device = SDL_OpenAudioDevice(nullptr, false, &spec_desired, nullptr, 0);
 #endif
     if (audio_device == 0) {
+#if defined(__ANDROID__)
+        if (!android_audio.is_active()) {
+            output_sample_rate = output_freq;
+            update_audio_converter();
+            return true;
+        }
+#endif
         std::string audio_error = std::string("No audio device could be found. Please make sure an audio device is available.\nError opening audio device: ") + std::string(SDL_GetError());
         recompui::message_box(audio_error.c_str());
         return false;

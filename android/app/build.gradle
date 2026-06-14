@@ -7,6 +7,9 @@ final String androidSdk = System.getenv('ANDROID_HOME') ?: "${homeDir}/Android/S
 final String androidNdk = System.getenv('ANDROID_NDK_HOME') ?: "${androidSdk}/ndk/28.2.13676358"
 final String sdl2Prefix = System.getenv('BANJO_ANDROID_SDL2_PREFIX') ?: "${homeDir}/Android/prefixes/SDL2-2.32.10-android-arm64"
 final String freetypePrefix = System.getenv('BANJO_ANDROID_FREETYPE_PREFIX') ?: "${homeDir}/Android/prefixes/freetype-2.13.3-android-arm64"
+final String defaultDevRomDir = System.getenv('BANJO_ANDROID_DEV_ROM_DIR') ?: project.findProperty('banjoDevRomDir') ?: rootProject.projectDir.parentFile.absolutePath
+final String bundledBaserom = System.getenv('BANJO_ANDROID_BASEROM') ?: new File(defaultDevRomDir, 'lib/bk-decomp/baserom.us.v10.z64').absolutePath
+final String bundledDecompressedRom = System.getenv('BANJO_ANDROID_DECOMPRESSED_ROM') ?: new File(defaultDevRomDir, 'banjo.us.v10.decompressed.z64').absolutePath
 final boolean banjoProbe = (project.findProperty('banjoProbe') ?: 'false').toString().toBoolean()
 // Backwards-compatible alias: the old -PbanjoDevFull=true mode meant "full runtime plus bundled dev ROMs".
 final boolean banjoBundleDevRoms = (project.findProperty('banjoBundleDevRoms') ?: project.findProperty('banjoDevFull') ?: 'false').toString().toBoolean()
@@ -36,6 +39,7 @@ android {
         versionCode banjoVersionCode
         versionName banjoVersionName
         buildConfigField 'boolean', 'BANJO_DUAL_SCREEN_DEBUG', banjoDualScreenDebug.toString()
+        buildConfigField 'boolean', 'BANJO_BUNDLE_DEV_ROMS', banjoBundleDevRoms.toString()
 
         externalNativeBuild {
             cmake {
@@ -114,13 +118,70 @@ android {
     }
 }
 
+String findOnPath(String name) {
+    final String pathValue = System.getenv('PATH') ?: ''
+    for (String pathEntry : pathValue.split(File.pathSeparator)) {
+        if (!pathEntry) {
+            continue
+        }
+        File candidate = new File(pathEntry, name)
+        if (candidate.isFile() && candidate.canExecute()) {
+            return candidate.absolutePath
+        }
+    }
+    return null
+}
+
+void requirePath(File path, String message) {
+    if (!path.exists()) {
+        throw new GradleException("${message}: ${path}")
+    }
+}
+
+tasks.register('validateAndroidBuildEnvironment') {
+    group = 'verification'
+    description = 'Fail fast when the local Android SDK/NDK, native dependency prefixes, generated sources, or dev-ROM inputs are missing.'
+    doLast {
+        requirePath(file(androidSdk), 'ANDROID_HOME does not point at an Android SDK')
+        requirePath(file(androidNdk), 'ANDROID_NDK_HOME does not point at the required Android NDK 28.2.13676358')
+        requirePath(new File(androidNdk, 'build/cmake/android.toolchain.cmake'), 'Android NDK toolchain file is missing')
+        requirePath(new File(androidNdk, 'toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld'), 'Android NDK ld.lld is missing')
+        requirePath(new File(sdl2Prefix, 'lib/cmake/SDL2'), 'BANJO_ANDROID_SDL2_PREFIX is missing SDL2 CMake config')
+        requirePath(new File(sdl2Prefix, 'lib/libSDL2.so'), 'BANJO_ANDROID_SDL2_PREFIX is missing libSDL2.so for packaging')
+        requirePath(new File(freetypePrefix, 'include/freetype2'), 'BANJO_ANDROID_FREETYPE_PREFIX is missing Freetype headers')
+        requirePath(new File(freetypePrefix, 'lib/libfreetype.a'), 'BANJO_ANDROID_FREETYPE_PREFIX is missing static Freetype library')
+
+        if (!banjoProbe) {
+            requirePath(new File(rootProject.projectDir.parentFile, 'RecompiledFuncs'), 'Runtime APK builds need generated RecompiledFuncs sources; run tools/ci/prepare_android_generated_sources.sh first')
+            if (fileTree(new File(rootProject.projectDir.parentFile, 'RecompiledFuncs')) { include '*.c', '*.cpp' }.isEmpty()) {
+                throw new GradleException('Runtime APK builds need RecompiledFuncs/*.c or RecompiledFuncs/*.cpp; run tools/ci/prepare_android_generated_sources.sh first')
+            }
+            requirePath(new File(rootProject.projectDir.parentFile, 'rsp/n_aspMain.cpp'), 'Runtime APK builds need generated rsp/n_aspMain.cpp; run tools/ci/prepare_android_generated_sources.sh first')
+            requirePath(new File(rootProject.projectDir.parentFile, 'RecompiledPatches/patches.c'), 'Runtime APK builds need generated RecompiledPatches/patches.c; run tools/ci/prepare_android_generated_sources.sh first')
+            if (findOnPath('clang') == null) {
+                throw new GradleException('Runtime patch/source regeneration expects host clang on PATH; source /home/hermes/.config/android-build-env.sh and prefer /usr/lib/llvm-19/bin before the NDK toolchain bin')
+            }
+            if (findOnPath('ld.lld') == null) {
+                throw new GradleException('Runtime patch/source regeneration expects host-visible ld.lld on PATH; /home/hermes/.config/android-build-env.sh creates/uses a symlink when the host package lacks one')
+            }
+        }
+
+        if (banjoBundleDevRoms) {
+            requirePath(file(bundledBaserom), 'Dev-ROM APK builds need a local baserom; set BANJO_ANDROID_BASEROM or BANJO_ANDROID_DEV_ROM_DIR')
+            requirePath(file(bundledDecompressedRom), 'Dev-ROM APK builds need a local decompressed ROM; set BANJO_ANDROID_DECOMPRESSED_ROM or BANJO_ANDROID_DEV_ROM_DIR')
+        }
+    }
+}
+
 tasks.register('copySdl2JniLib', Copy) {
+    dependsOn tasks.named('validateAndroidBuildEnvironment')
     from("${sdl2Prefix}/lib/libSDL2.so")
     into(new File(generatedJniLibsDir, 'arm64-v8a'))
 }
 
 if (banjoRuntimeApk) {
     tasks.register('copyProgramAssets', Copy) {
+        dependsOn tasks.named('validateAndroidBuildEnvironment')
         doFirst {
             delete generatedProgramAssetsDir
         }
@@ -136,13 +197,14 @@ if (banjoRuntimeApk) {
 
 if (banjoBundleDevRoms) {
     tasks.register('copyDevRomAssets', Copy) {
+        dependsOn tasks.named('validateAndroidBuildEnvironment')
         doFirst {
             delete generatedDevRomAssetsDir
         }
-        from('../../lib/bk-decomp/baserom.us.v10.z64') {
+        from(bundledBaserom) {
             into('program/dev-roms')
         }
-        from('../../banjo.us.v10.decompressed.z64') {
+        from(bundledDecompressedRom) {
             into('program/dev-roms')
         }
         into(generatedDevRomAssetsDir)

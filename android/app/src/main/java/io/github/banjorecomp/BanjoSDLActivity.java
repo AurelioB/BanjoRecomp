@@ -72,7 +72,7 @@ public class BanjoSDLActivity extends SDLActivity {
         if (cachedRom != null && dualScreenStatsManager != null) {
             dualScreenStatsManager.loadThemeFromRom(cachedRom);
         }
-        if (bundledDevRom.isFile()) {
+        if (BuildConfig.BANJO_BUNDLE_DEV_ROMS && bundledDevRom.isFile()) {
             if (dualScreenStatsManager != null) {
                 dualScreenStatsManager.loadThemeFromRom(bundledDevRom);
             }

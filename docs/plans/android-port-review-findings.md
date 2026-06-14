@@ -33,17 +33,17 @@
 
 **Issue:**
 
-The default non-dev Gradle build sets:
+Earlier bring-up builds used the SDL lifecycle probe as the default non-dev Gradle path, setting:
 
 - `BANJO_ANDROID_SHELL_ONLY=ON`
 - `BANJO_ANDROID_SDL_LIFECYCLE_PROBE=ON`
 
-That builds `libmain.so` from `src/android/sdl_lifecycle_probe.cpp`. The vendored SDL Java glue calls:
+That built `libmain.so` from `src/android/sdl_lifecycle_probe.cpp`. The vendored SDL Java glue calls:
 
 - `BanjoSDLActivity.nativeSetAndroidSurfaceReady(false)`
 - `BanjoSDLActivity.nativeSetAndroidSurfaceReady(true)`
 
-Those native functions were initially implemented only for the full renderer path. The default/probe APK could therefore hit `UnsatisfiedLinkError` during surface lifecycle.
+Those native functions were initially implemented only for the full renderer path. Probe APKs could therefore hit `UnsatisfiedLinkError` during surface lifecycle. The current default Gradle build is no longer this probe path; it is the real runtime APK unless `-PbanjoProbe=true` is passed.
 
 **Fix:**
 
@@ -51,7 +51,7 @@ Those native functions were initially implemented only for the full renderer pat
 
 **Verification:**
 
-- `gradle -p android :app:assembleDebug --stacktrace`
+- `gradle -p android :app:assembleDebug -PbanjoProbe=true --stacktrace`
 
 ---
 
@@ -108,12 +108,10 @@ Add Android/Gradle/CMake cache patterns to `.gitignore`, remove local generated 
 
 ---
 
-### 4. Legacy probe/shell code needs deletion or explicit documentation
+### 4. Legacy probe/shell code needs deletion or explicit documentation — fixed
 
 **Files:**
 
-- `android/app/src/main/java/io/github/banjorecomp/MainActivity.java`
-- `src/android/android_shell.cpp`
 - `src/android/sdl_lifecycle_probe.cpp`
 - `android/README.md`
 - `CMakeLists.txt`
@@ -122,14 +120,11 @@ Add Android/Gradle/CMake cache patterns to `.gitignore`, remove local generated 
 
 The current app launches `BanjoSDLActivity` and the working path is the full `SDL_main`/`libmain.so` path. The older native text-view shell and SDL lifecycle probe are now bring-up artifacts unless deliberately preserved.
 
-**Recommended fix:**
+**Fix:**
 
-Choose one:
+The old text-view `MainActivity` / `BanjoAndroidShell` path was retired. Android probe mode now only means the SDLActivity lifecycle probe: Gradle `-PbanjoProbe=true` passes `BANJO_ANDROID_SHELL_ONLY=ON` and `BANJO_ANDROID_SDL_LIFECYCLE_PROBE=ON`, CMake builds `src/android/sdl_lifecycle_probe.cpp` as `libmain.so`, and CMake fails fast if `BANJO_ANDROID_SHELL_ONLY` is requested without the SDL lifecycle probe. The default and dev-ROM modes remain the real `BanjoSDLActivity` / `libmain.so` runtime path.
 
-1. Keep them as documented diagnostics with explicit CMake/Gradle options and working JNI stubs.
-2. Delete the unused shell path and simplify Android build options around the full app.
-
-Do not leave stale README text claiming the active APK uses `MainActivity`/`libBanjoAndroidShell` if it does not.
+`android/README.md` now documents the active package/activity (`com.aure.banjorecomp/io.github.banjorecomp.BanjoSDLActivity`), the default runtime APK, the gated bundled-dev-ROM runtime APK, and the opt-in SDL lifecycle probe. It no longer presents `MainActivity` or `libBanjoAndroidShell` as a supported path.
 
 ---
 

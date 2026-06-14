@@ -46,14 +46,14 @@ set(RT64_SDL_WINDOW_VULKAN TRUE)
 add_compile_definitions(HLSL_CPU)
 
 if (CMAKE_SYSTEM_NAME MATCHES "Android")
-    option(BANJO_ANDROID_SHELL_ONLY "Build only a minimal Android native shell that does not require generated game sources." OFF)
+    option(BANJO_ANDROID_SHELL_ONLY "Compatibility flag for the Android SDL lifecycle probe; the legacy text-view shell target is retired." OFF)
     option(BANJO_ANDROID_RENDERER_STUB "Use a no-op renderer context for Android probe builds." OFF)
     option(BANJO_ANDROID_SDL_LIFECYCLE_PROBE "Build an SDLActivity-driven Android lifecycle probe instead of the full runtime." OFF)
     option(BANJO_ANDROID_RUNTIME_APK "Build the real Android runtime as SDLActivity libmain.so." ON)
     option(BANJO_ANDROID_DEV_FULL_APK "Enable dev-only behavior for local Android APKs with bundled ROM assets." OFF)
     option(BANJO_ANDROID_VULKAN_SMOKE_PROBE "Compile the Android Vulkan smoke probe diagnostic into full Android builds." OFF)
 else()
-    option(BANJO_ANDROID_SHELL_ONLY "Build only a minimal Android native shell that does not require generated game sources." OFF)
+    option(BANJO_ANDROID_SHELL_ONLY "Compatibility flag for the Android SDL lifecycle probe; the legacy text-view shell target is retired." OFF)
     option(BANJO_ANDROID_RENDERER_STUB "Use a no-op renderer context for Android probe builds." OFF)
     option(BANJO_ANDROID_SDL_LIFECYCLE_PROBE "Build an SDLActivity-driven Android lifecycle probe instead of the full runtime." OFF)
     option(BANJO_ANDROID_RUNTIME_APK "Build the real Android runtime as SDLActivity libmain.so." OFF)
@@ -66,21 +66,17 @@ if (BANJO_ANDROID_SHELL_ONLY)
         message(FATAL_ERROR "BANJO_ANDROID_SHELL_ONLY is only supported for Android builds.")
     endif()
 
+    if (NOT BANJO_ANDROID_SDL_LIFECYCLE_PROBE)
+        message(FATAL_ERROR "BANJO_ANDROID_SHELL_ONLY now only supports the SDL lifecycle probe. The legacy MainActivity/BanjoAndroidShell text-view shell was retired; use -DBANJO_ANDROID_SDL_LIFECYCLE_PROBE=ON or build the runtime APK.")
+    endif()
+
     find_package(SDL2 REQUIRED)
 
-    if (BANJO_ANDROID_SDL_LIFECYCLE_PROBE)
-        add_library(main SHARED
-            ${CMAKE_SOURCE_DIR}/src/android/sdl_lifecycle_probe.cpp
-        )
-        target_include_directories(main PRIVATE ${SDL2_INCLUDE_DIRS})
-        target_link_libraries(main PRIVATE SDL2::SDL2 android log)
-    else()
-        add_library(BanjoAndroidShell SHARED
-            ${CMAKE_SOURCE_DIR}/src/android/android_shell.cpp
-        )
-        target_include_directories(BanjoAndroidShell PRIVATE ${SDL2_INCLUDE_DIRS})
-        target_link_libraries(BanjoAndroidShell PRIVATE SDL2::SDL2 android log)
-    endif()
+    add_library(main SHARED
+        ${CMAKE_SOURCE_DIR}/src/android/sdl_lifecycle_probe.cpp
+    )
+    target_include_directories(main PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_link_libraries(main PRIVATE SDL2::SDL2 android log)
 
     return()
 endif()
@@ -399,6 +395,12 @@ set(RECOMP_FRONTEND_N64MODERNRUNTIME_PATH ${CMAKE_SOURCE_DIR}/lib/N64ModernRunti
 set(RECOMP_FRONTEND_RT64_PATH ${CMAKE_SOURCE_DIR}/lib/rt64)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/lib/RecompFrontend)
+
+if (CMAKE_SYSTEM_NAME MATCHES "Android" AND BANJO_ANDROID_DEV_FULL_APK)
+    # ui_launcher.cpp is compiled into the recompui static library, not the final
+    # Android libmain target, so the native auto-ROM gate must be visible here.
+    target_compile_definitions(recompui PRIVATE BANJO_ANDROID_DEV_FULL_APK=1)
+endif()
 
 target_link_libraries(${BANJO_RECOMP_TARGET} PRIVATE
     PatchesLib
