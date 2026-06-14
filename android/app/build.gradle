@@ -28,7 +28,7 @@ android {
     compileSdk 36
 
     defaultConfig {
-        applicationId 'io.github.banjorecomp'
+        applicationId 'com.aure.banjorecomp'
         minSdk 24
         targetSdk 36
         versionCode banjoVersionCode

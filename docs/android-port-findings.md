@@ -5,7 +5,7 @@ This is the durable repo-local handoff for the Android port. Keep it updated whe
 ## Current branch and dependency stack
 
 - Main Android branch: `android`.
-- Package: `io.github.banjorecomp`.
+- Android applicationId/package: `com.aure.banjorecomp`; Java/JNI namespace remains `io.github.banjorecomp`.
 - Shared RT64 submodule target: `lib/rt64` commit `2647d781a0c03486c7e373eb7b0729258292b36c` on `audit/android-sdl-vulkan`.
 - Shared RecompFrontend submodule target: `lib/RecompFrontend` commit `c4fdf39a74f23d92acc8a29a6c55fcc209a77bfe` on `audit/android-frontend-support`.
 - Shared N64ModernRuntime submodule target: `lib/N64ModernRuntime` commit `27b20c8c80aa817be24c2a2af3d42030225bf8d7`.
