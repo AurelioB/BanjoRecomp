@@ -38,7 +38,8 @@ On supported devices, the second screen becomes a live companion display, includ
 
 ## Mods on Android
 
-The Android port keeps Banjo: Recompiled's mod-friendly design. Mods and texture packs can be imported into app-private storage and used without turning the Android build into a different project or bundling game assets into the APK.
+So far, I've only tried the [BK Reloaded texture pack](https://thunderstore.io/c/banjo-recompiled/p/GhostlyDark/BK_Reloaded/)
+Please report if you find an incompatible mod
 
 ## Development notes
 
