@@ -212,18 +212,19 @@ These stay in BanjoRecomp unless later proven otherwise:
 
 ## Future extraction criteria
 
-Do not extract shared Java framework code during this cycle just because BanjoRecomp has a working implementation. Extract only after all of the following are true:
+Do not extract shared Java framework code during this cycle just because BanjoRecomp has a working implementation. The BMHero comparison in `docs/plans/bmhero-companion-framework-fit.md` confirms that BMHero currently shares the Android runtime/dependency shape but has no companion-display consumer yet, so extraction still needs a later second-port implementation pass. Extract only after all of the following are true:
 
-1. BMHeroRecomp consumes the same host/provider/resource/renderer/snapshot/event shape in a later pass.
-2. Shared candidates contain no Banjo or BMHero package names, Activity names, JNI symbols, ROM filenames, map IDs, item IDs, asset IDs, or renderer art/layout assumptions.
-3. The API works with typed game DTOs for at least two ports without forcing either port into unnatural field names.
-4. The shared home is chosen by ownership, not convenience:
+1. BMHeroRecomp consumes the same host/provider/resource/renderer/snapshot/event shape in a later pass, with BMHero-owned typed DTOs and renderer/resource classes.
+2. Shared candidates contain no Banjo or BMHero package names, Activity names, JNI symbols, ROM filenames, map IDs, item IDs, object IDs, asset IDs, or renderer art/layout assumptions.
+3. The API works with typed game DTOs for at least two ports without forcing either port into unnatural field names or Banjo-specific transition art semantics.
+4. Package-neutral SDL surface/focus/audio hooks exist before moving lifecycle glue into shared Java/SDL code; current hard-coded Activity calls such as `BanjoSDLActivity`/`BMHeroSDLActivity` are not extractable as-is.
+5. The shared home is chosen by ownership, not convenience:
    - Android Presentation/display lifecycle may belong in a small Android companion module.
    - Generic runtime event transport may belong in N64ModernRuntime only if package-free.
    - Generic frontend picker seams may belong in RecompFrontend.
    - Renderer/platform fixes belong in RT64/Plume only when they are game-agnostic.
-5. Guard checks exist to grep shared dependencies for app-specific symbols before publishing.
-6. BanjoRecomp remains a consumer/example, not the framework itself.
+6. Guard checks exist to grep shared dependencies for app-specific symbols from both ports before publishing.
+7. BanjoRecomp remains a consumer/example, not the framework itself.
 
 Until those criteria are met, keep the contracts app-local and mark implementation packages as experimental/internal.
 
