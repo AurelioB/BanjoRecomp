@@ -1,0 +1,20 @@
+# Normalize all text files to LF in the repository and on checkout.
+# This prevents CRLF warnings on Windows (core.autocrlf=true) and ensures
+# shell scripts are always LF so they execute correctly on Linux/Mac.
+* text=auto eol=lf
+
+# Windows batch and cmd scripts require CRLF to run correctly on Windows.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files — never modify line endings.
+*.jar binary
+*.bin binary
+*.png binary
+*.apk binary
+*.aab binary
+*.z64 binary
+*.n64 binary
+*.v64 binary
+*.rom binary
+*.elf binary
