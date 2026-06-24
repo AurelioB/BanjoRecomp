@@ -3,10 +3,19 @@ plugins {
 }
 
 final String homeDir = System.getenv('HOME') ?: System.getProperty('user.home')
-final String androidSdk = System.getenv('ANDROID_HOME') ?: "${homeDir}/Android/Sdk"
-final String androidNdk = System.getenv('ANDROID_NDK_HOME') ?: "${androidSdk}/ndk/28.2.13676358"
-final String sdl2Prefix = System.getenv('BANJO_ANDROID_SDL2_PREFIX') ?: "${homeDir}/Android/prefixes/SDL2-2.32.10-android-arm64"
-final String freetypePrefix = System.getenv('BANJO_ANDROID_FREETYPE_PREFIX') ?: "${homeDir}/Android/prefixes/freetype-2.13.3-android-arm64"
+final String androidSdk = (System.getenv('ANDROID_HOME') ?: {
+    String defaultSdk = "${homeDir}/Android/Sdk"
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        String appDataSdk = "${System.getenv('LOCALAPPDATA')}/Android/Sdk"
+        if (!new File(defaultSdk).exists() && new File(appDataSdk).exists()) {
+            return appDataSdk
+        }
+    }
+    return defaultSdk
+}.call()).replace('\\', '/')
+final String androidNdk = (System.getenv('ANDROID_NDK_HOME') ?: "${androidSdk}/ndk/28.2.13676358").replace('\\', '/')
+final String sdl2Prefix = (System.getenv('BANJO_ANDROID_SDL2_PREFIX') ?: "${homeDir}/Android/prefixes/SDL2-2.32.10-android-arm64").replace('\\', '/')
+final String freetypePrefix = (System.getenv('BANJO_ANDROID_FREETYPE_PREFIX') ?: "${homeDir}/Android/prefixes/freetype-2.13.3-android-arm64").replace('\\', '/')
 final String defaultDevRomDir = System.getenv('BANJO_ANDROID_DEV_ROM_DIR') ?: project.findProperty('banjoDevRomDir') ?: rootProject.projectDir.parentFile.absolutePath
 final String bundledBaserom = System.getenv('BANJO_ANDROID_BASEROM') ?: new File(defaultDevRomDir, 'lib/bk-decomp/baserom.us.v10.z64').absolutePath
 final String bundledDecompressedRom = System.getenv('BANJO_ANDROID_DECOMPRESSED_ROM') ?: new File(defaultDevRomDir, 'banjo.us.v10.decompressed.z64').absolutePath
@@ -17,7 +26,7 @@ final boolean banjoRuntimeApk = !banjoProbe
 final boolean banjoNativeOptimized = (project.findProperty('banjoNativeOptimized') ?: (banjoRuntimeApk ? 'true' : 'false')).toString().toBoolean()
 final boolean banjoDualScreenDebug = (project.findProperty('banjoDualScreenDebug') ?: 'false').toString().toBoolean()
 final String banjoVersionName = System.getenv('BANJO_ANDROID_VERSION_NAME') ?: (banjoProbe ? '0.1.0-android-sdl-probe' : (banjoBundleDevRoms ? '0.1.0-android-dev-roms' : '0.1.0-android-runtime'))
-final int banjoVersionCode = (System.getenv('BANJO_ANDROID_VERSION_CODE') ?: project.findProperty('banjoVersionCode') ?: '1').toString().toInteger()
+final int banjoVersionCode = (System.getenv('BANJO_ANDROID_VERSION_CODE') ?: project.findProperty('banjoVersionCode') ?: '2').toString().toInteger()
 final String releaseStoreFile = System.getenv('BANJO_ANDROID_KEYSTORE_FILE')
 final String releaseStorePassword = System.getenv('BANJO_ANDROID_KEYSTORE_PASSWORD')
 final String releaseKeyAlias = System.getenv('BANJO_ANDROID_KEY_ALIAS')
@@ -62,6 +71,8 @@ android {
                     // Android's Gradle Debug variant drives CMake with CMAKE_BUILD_TYPE=Debug,
                     // which otherwise gives Clang no optimization flags. The full game is CPU
                     // heavy enough that an -O0 native build is not representative for perf testing.
+                    // On Windows, -O2 on hundreds of large machine-generated files can OOM Ninja.
+                    // Use -O1 for a better balance if memory issues persist.
                     cFlags '-O2', '-g', '-DNDEBUG'
                     cppFlags '-O2', '-g', '-DNDEBUG'
                 }
@@ -120,13 +131,13 @@ android {
 
 String findOnPath(String name) {
     final String pathValue = System.getenv('PATH') ?: ''
+    final boolean isWindows = System.getProperty('os.name').toLowerCase().contains('windows')
+    final List<String> candidates = isWindows ? [name, "${name}.exe", "${name}.cmd"] : [name]
     for (String pathEntry : pathValue.split(File.pathSeparator)) {
-        if (!pathEntry) {
-            continue
-        }
-        File candidate = new File(pathEntry, name)
-        if (candidate.isFile() && candidate.canExecute()) {
-            return candidate.absolutePath
+        if (!pathEntry) continue
+        for (String candidateName : candidates) {
+            File candidate = new File(pathEntry, candidateName)
+            if (candidate.isFile() && candidate.canExecute()) return candidate.absolutePath
         }
     }
     return null
@@ -145,7 +156,10 @@ tasks.register('validateAndroidBuildEnvironment') {
         requirePath(file(androidSdk), 'ANDROID_HOME does not point at an Android SDK')
         requirePath(file(androidNdk), 'ANDROID_NDK_HOME does not point at the required Android NDK 28.2.13676358')
         requirePath(new File(androidNdk, 'build/cmake/android.toolchain.cmake'), 'Android NDK toolchain file is missing')
-        requirePath(new File(androidNdk, 'toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld'), 'Android NDK ld.lld is missing')
+        final boolean isWindows = System.getProperty('os.name').toLowerCase().contains('windows')
+        final String ndkHostArch = isWindows ? 'windows-x86_64' : 'linux-x86_64'
+        final String ldLldBin = isWindows ? 'ld.lld.exe' : 'ld.lld'
+        requirePath(new File(androidNdk, "toolchains/llvm/prebuilt/${ndkHostArch}/bin/${ldLldBin}"), "Android NDK ${ldLldBin} is missing")
         requirePath(new File(sdl2Prefix, 'lib/cmake/SDL2'), 'BANJO_ANDROID_SDL2_PREFIX is missing SDL2 CMake config')
         requirePath(new File(sdl2Prefix, 'lib/libSDL2.so'), 'BANJO_ANDROID_SDL2_PREFIX is missing libSDL2.so for packaging')
         requirePath(new File(freetypePrefix, 'include/freetype2'), 'BANJO_ANDROID_FREETYPE_PREFIX is missing Freetype headers')
@@ -158,11 +172,16 @@ tasks.register('validateAndroidBuildEnvironment') {
             }
             requirePath(new File(rootProject.projectDir.parentFile, 'rsp/n_aspMain.cpp'), 'Runtime APK builds need generated rsp/n_aspMain.cpp; run tools/ci/prepare_android_generated_sources.sh first')
             requirePath(new File(rootProject.projectDir.parentFile, 'RecompiledPatches/patches.c'), 'Runtime APK builds need generated RecompiledPatches/patches.c; run tools/ci/prepare_android_generated_sources.sh first')
-            if (findOnPath('clang') == null) {
-                throw new GradleException('Runtime patch/source regeneration expects host clang on PATH; source /home/hermes/.config/android-build-env.sh and prefer /usr/lib/llvm-19/bin before the NDK toolchain bin')
-            }
-            if (findOnPath('ld.lld') == null) {
-                throw new GradleException('Runtime patch/source regeneration expects host-visible ld.lld on PATH; /home/hermes/.config/android-build-env.sh creates/uses a symlink when the host package lacks one')
+            // clang and ld.lld are only needed to (re)build patches/patches.bin via the patches Makefile.
+            // Skip this check when patches.bin already exists — CMake will not invoke the patches build step.
+            final boolean patchesBinExists = new File(rootProject.projectDir.parentFile, 'patches/patches.bin').exists()
+            if (!patchesBinExists) {
+                if (findOnPath('clang') == null) {
+                    throw new GradleException('Runtime patch/source regeneration expects host clang on PATH; on Linux install clang via your package manager and prefer /usr/lib/llvm-XX/bin, on Windows ensure the NDK toolchain bin is on PATH')
+                }
+                if (findOnPath('ld.lld') == null) {
+                    throw new GradleException('Runtime patch/source regeneration expects host ld.lld on PATH; on Linux install lld via your package manager (or symlink ld.lld to the versioned binary), on Windows ensure the NDK toolchain bin is on PATH')
+                }
             }
         }
 

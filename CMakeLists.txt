@@ -143,13 +143,29 @@ target_sources(PatchesLib PRIVATE
 
 set_source_files_properties(${CMAKE_SOURCE_DIR}/RecompiledPatches/patches.c PROPERTIES COMPILE_FLAGS -fno-strict-aliasing)
 
-# Build patches elf
-if(NOT DEFINED PATCHES_C_COMPILER)
-    set(PATCHES_C_COMPILER clang)
+# RecompiledPatches elf compilation needs a host clang/ld.lld.
+# On Windows, we prefer the NDK's toolchain if a host one isn't explicitly on PATH.
+if(CMAKE_HOST_WIN32 AND CMAKE_SYSTEM_NAME MATCHES "Android")
+    if(NOT DEFINED PATCHES_C_COMPILER)
+        set(PATCHES_C_COMPILER "clang.exe")
+    endif()
+    if(NOT DEFINED PATCHES_LD)
+        set(PATCHES_LD "ld.lld.exe")
+    endif()
+else()
+    if(NOT DEFINED PATCHES_C_COMPILER)
+        set(PATCHES_C_COMPILER clang)
+    endif()
+    if(NOT DEFINED PATCHES_LD)
+        set(PATCHES_LD ld.lld)
+    endif()
 endif()
 
-if(NOT DEFINED PATCHES_LD)
-    set(PATCHES_LD ld.lld)
+# N64Recomp is a host tool built separately and placed at the source root.
+if(CMAKE_HOST_WIN32)
+    set(N64RECOMP_HOST_TOOL "${CMAKE_SOURCE_DIR}/N64Recomp.exe")
+else()
+    set(N64RECOMP_HOST_TOOL "${CMAKE_SOURCE_DIR}/N64Recomp")
 endif()
 
 add_custom_target(PatchesBin
@@ -160,8 +176,8 @@ add_custom_target(PatchesBin
 
 # Generate patches_bin.c from patches.bin
 add_custom_command(OUTPUT ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.c
-    COMMAND file_to_c ${CMAKE_SOURCE_DIR}/patches/patches.bin bk_patches_bin ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.c ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.h
-    DEPENDS ${CMAKE_SOURCE_DIR}/patches/patches.bin
+    COMMAND ${FILE_TO_C_TOOL} ${CMAKE_SOURCE_DIR}/patches/patches.bin bk_patches_bin ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.c ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.h
+    DEPENDS ${CMAKE_SOURCE_DIR}/patches/patches.bin ${RT64_FILE_TO_C_PY}
 )
 
 # Recompile patches elf into patches.c and patches.bin
@@ -171,7 +187,7 @@ add_custom_command(OUTPUT
                        ${CMAKE_SOURCE_DIR}/RecompiledPatches/recomp_overlays.inl
                        ${CMAKE_SOURCE_DIR}/RecompiledPatches/funcs.h
                    # TODO: Look into why modifying patches requires two builds to take
-                   COMMAND ./N64Recomp patches.toml
+                   COMMAND ${N64RECOMP_HOST_TOOL} patches.toml
                    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
                    DEPENDS ${CMAKE_SOURCE_DIR}/patches/patches.elf
 )
@@ -226,8 +242,8 @@ target_include_directories(${BANJO_RECOMP_TARGET} PRIVATE
 
 # Generate icon_bytes.c from the app icon PNG.
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.c ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.h
-    COMMAND file_to_c ${CMAKE_SOURCE_DIR}/icons/app.png icon_bytes ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.c ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.h
-    DEPENDS ${CMAKE_SOURCE_DIR}/icons/app.png
+    COMMAND ${FILE_TO_C_TOOL} ${CMAKE_SOURCE_DIR}/icons/app.png icon_bytes ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.c ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.h
+    DEPENDS ${CMAKE_SOURCE_DIR}/icons/app.png ${RT64_FILE_TO_C_PY}
 )
 
 target_sources(${BANJO_RECOMP_TARGET} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/icon_bytes.c)
@@ -383,7 +399,9 @@ else()
         endif()
     else()
         # Android and other cross-builds run DXC on the build host, not the target.
-        if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+        if (CMAKE_HOST_WIN32)
+            set (DXC "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxc.exe")
+        elseif(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
             set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/x64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/x64/dxc-linux")
         else()
             set (DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/arm64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/arm64/dxc-linux")
@@ -425,8 +443,8 @@ foreach(NRM_FILE ${NRM_FILES})
 
     add_custom_command(
         OUTPUT ${OUT_C} ${OUT_H}
-        COMMAND file_to_c ${NRM_FILE} ${NRM_NAME} ${OUT_C} ${OUT_H}
-        DEPENDS ${NRM_FILE}
+        COMMAND ${FILE_TO_C_TOOL} ${NRM_FILE} ${NRM_NAME} ${OUT_C} ${OUT_H}
+        DEPENDS ${NRM_FILE} ${RT64_FILE_TO_C_PY}
     )
 
     list(APPEND GENERATED_NRM_SOURCES ${OUT_C})

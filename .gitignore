@@ -3,6 +3,9 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 
+# Jetbrains / Android Studio settings
+.idea/
+
 # Input elf and ROM files (local/private only)
 *.elf
 *.z64

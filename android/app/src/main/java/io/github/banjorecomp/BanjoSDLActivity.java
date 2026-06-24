@@ -1,12 +1,16 @@
 package io.github.banjorecomp;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.Settings;
 import android.provider.OpenableColumns;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -29,6 +33,7 @@ public class BanjoSDLActivity extends SDLActivity {
     private static final String TAG = "BanjoSDLActivity";
     private static final int REQUEST_INSTALL_MODS = 1001;
     private static final int REQUEST_SELECT_ROM = 1002;
+    private static final int REQUEST_STORAGE_PERMISSION = 1003;
     private static final String PROGRAM_ASSET_STAMP_FILE = ".program-assets-stamp";
     private static final String EXTRA_DUAL_SCREEN_PREVIEW = "dualscreen_preview";
     private static final String EXTRA_DUAL_SCREEN_PREVIEW_CLEAR = "dualscreen_preview_clear";
@@ -53,6 +58,19 @@ public class BanjoSDLActivity extends SDLActivity {
         lastPostedDualScreenStats = null;
         File programDir = new File(getFilesDir(), "program");
         File appDataDir = new File(getFilesDir(), "data");
+
+        if (hasAllFilesPermission()) {
+            File sharedDir = new File(Environment.getExternalStorageDirectory(), "BanjoRecompiled");
+            if (!sharedDir.exists()) {
+                sharedDir.mkdirs();
+            }
+            if (sharedDir.exists() && sharedDir.canWrite()) {
+                migrateDataIfNeeded(appDataDir, sharedDir);
+                appDataDir = sharedDir;
+            }
+        } else {
+            requestAllFilesPermission();
+        }
 
         try {
             extractProgramAssetsIfNeeded(programDir);
@@ -669,6 +687,90 @@ public class BanjoSDLActivity extends SDLActivity {
             int read;
             while ((read = in.read(buffer)) != -1) {
                 out.write(buffer, 0, read);
+            }
+        }
+    }
+
+    private boolean hasAllFilesPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager();
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        }
+        return true;
+    }
+
+    private void requestAllFilesPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runOnUiThread(() -> {
+                new AlertDialog.Builder(this)
+                    .setTitle("Storage Permission Required")
+                    .setCancelable(false)
+                    .setMessage("Banjo Recompiled needs access to your shared storage to store and load mods and save files from the 'BanjoRecompiled' folder. This allows you to easily manage your files and prevents data loss if the app is uninstalled.\n\nPlease enable 'All files access' in the next screen.")
+                    .setPositiveButton("Go to Settings", (dialog, which) -> {
+                        try {
+                            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                            intent.addCategory("android.intent.category.DEFAULT");
+                            intent.setData(Uri.parse(String.format("package:%s", getPackageName())));
+                            startActivity(intent);
+                        } catch (Exception e) {
+                            Intent intent = new Intent();
+                            intent.setAction(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                            startActivity(intent);
+                        }
+                    })
+                    .setNegativeButton("Use Private Storage", (dialog, which) -> {
+                        // Continue with private storage
+                    })
+                    .show();
+            });
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                    REQUEST_STORAGE_PERMISSION);
+        }
+    }
+
+    private void migrateDataIfNeeded(File oldDataDir, File newDataDir) {
+        if (!oldDataDir.exists() || !oldDataDir.isDirectory()) {
+            return;
+        }
+
+        // We only migrate if the new directory is empty (besides maybe the directory itself)
+        File[] newFiles = newDataDir.listFiles();
+        if (newFiles != null && newFiles.length > 0) {
+            return;
+        }
+
+        Log.i(TAG, "Migrating data from " + oldDataDir.getAbsolutePath() + " to " + newDataDir.getAbsolutePath());
+        try {
+            copyDirectory(oldDataDir, newDataDir);
+            Log.i(TAG, "Migration successful");
+        } catch (IOException e) {
+            Log.e(TAG, "Migration failed", e);
+        }
+    }
+
+    private void copyDirectory(File source, File destination) throws IOException {
+        if (source.isDirectory()) {
+            if (!destination.exists() && !destination.mkdirs()) {
+                throw new IOException("Failed to create directory " + destination);
+            }
+            String[] children = source.list();
+            if (children != null) {
+                for (String child : children) {
+                    copyDirectory(new File(source, child), new File(destination, child));
+                }
+            }
+        } else {
+            try (InputStream in = new FileInputStream(source);
+                 OutputStream out = new FileOutputStream(destination)) {
+                byte[] buf = new byte[64 * 1024];
+                int len;
+                while ((len = in.read(buf)) > 0) {
+                    out.write(buf, 0, len);
+                }
             }
         }
     }
