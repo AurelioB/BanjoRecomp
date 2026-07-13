@@ -11,6 +11,8 @@
 #include <atomic>
 #include <mutex>
 #include <cstring>
+#include <cstdlib>
+#include <utility>
 
 #if !defined(__ANDROID__)
 #include "nfd.h"
@@ -40,10 +42,20 @@
 #include <android/log.h>
 #include <jni.h>
 #include <SDL_events.h>
+#include "../android/save_storage_manager.hpp"
 #endif
 
 #if defined(BANJO_ANDROID_RENDERER_STUB)
 #include "../android/null_renderer_context.hpp"
+#endif
+
+#if defined(BANJO_ANDROID_CUSTOM_DRIVER_MANAGER)
+#include "../android/custom_driver_manager.hpp"
+#include "../../lib/rt64/src/contrib/plume/plume_vulkan.h"
+#endif
+#if defined(__ANDROID__) && defined(BANJO_ANDROID_VULKAN_SMOKE_PROBE)
+#include <sys/system_properties.h>
+extern "C" int android_vulkan_smoke_main();
 #endif
 
 #include "recompui/recompui.h"
@@ -84,6 +96,80 @@
 
 #if defined(__ANDROID__)
 namespace {
+#if defined(BANJO_ANDROID_CUSTOM_DRIVER_MANAGER)
+VkResult initialize_android_vulkan_loader() {
+    return static_cast<VkResult>(banjo::android::custom_driver::initialize_vulkan_loader_for_volk());
+}
+
+void observe_android_vulkan_device(const VkPhysicalDeviceProperties& properties) {
+    banjo::android::custom_driver::record_selected_vulkan_device(
+        properties.deviceName,
+        properties.vendorID,
+        properties.deviceID,
+        properties.driverVersion);
+}
+
+void refresh_android_driver_settings() {
+    recompui::config::graphics::refresh_driver_status();
+}
+
+recompui::config::graphics::DriverSettingsProvider make_android_driver_settings_provider() {
+    recompui::config::graphics::DriverSettingsProvider provider{};
+    provider.status = []() {
+        const auto status = banjo::android::custom_driver::get_runtime_status();
+        const std::string loaded = status.loaded_driver_label.empty() ? "Not initialized" : status.loaded_driver_label;
+        const std::string selected = status.selection.mode == banjo::android::custom_driver::Mode::Custom
+            ? (status.selection.display_name.empty() ? "Custom Driver" : status.selection.display_name)
+            : "System Default";
+        return "Loaded: " + loaded + " | Selected: " + selected;
+    };
+    provider.details = []() {
+        const auto status = banjo::android::custom_driver::get_runtime_status();
+        if (status.physical_device_name.empty()) {
+            return std::string{"Physical device not reported yet"};
+        }
+        char details[256]{};
+        std::snprintf(details, sizeof(details), "%s | vendor 0x%08x | device 0x%08x | driver 0x%08x",
+            status.physical_device_name.c_str(), status.vendor_id, status.device_id, status.driver_version);
+        return std::string{details};
+    };
+    provider.change_status = []() {
+        const auto status = banjo::android::custom_driver::get_runtime_status();
+        return status.message.empty() ? std::string{"No pending driver change"} : status.message;
+    };
+    provider.select = []() {
+        banjo::android::custom_driver::request_driver_picker();
+    };
+    provider.reset = []() {
+        std::string error;
+        if (!banjo::android::custom_driver::reset_to_system_from_ui(&error)) {
+            auto status = banjo::android::custom_driver::get_runtime_status();
+            status.message = "Failed to reset driver selection: " + error;
+            banjo::android::custom_driver::set_runtime_status(std::move(status));
+        }
+        refresh_android_driver_settings();
+    };
+    provider.select_description = "Import and select a custom Vulkan driver package. The loaded driver changes after restart.";
+    provider.reset_description = "Select the Android system Vulkan driver. The loaded driver changes after restart.";
+    return provider;
+}
+#endif
+
+std::string android_jstring_to_string(JNIEnv* env, jstring value) {
+    if (value == nullptr) {
+        return {};
+    }
+
+    const char* chars = env->GetStringUTFChars(value, nullptr);
+    if (chars == nullptr) {
+        return {};
+    }
+
+    std::string result{chars};
+    env->ReleaseStringUTFChars(value, chars);
+    return result;
+}
+
 void push_android_mod_drop_events(JNIEnv* env, jobjectArray paths) {
     if (paths == nullptr) {
         return;
@@ -148,6 +234,76 @@ Java_io_github_banjorecomp_BanjoSDLActivity_nativeOnRomSelected(JNIEnv* env, jcl
     env->ReleaseStringUTFChars(path_string, path_chars);
     recompui::file::complete_android_file_dialog(true, path);
 }
+
+#if defined(BANJO_ANDROID_CUSTOM_DRIVER_MANAGER)
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_banjorecomp_BanjoSDLActivity_nativeOnGpuDriverImported(
+    JNIEnv* env,
+    jclass,
+    jstring driver_id_string,
+    jstring display_name_string,
+    jstring driver_dir_string,
+    jstring driver_soname_string,
+    jstring error_string) {
+    __android_log_print(ANDROID_LOG_INFO, "BanjoGpuDriver",
+        "JNI Java_io_github_banjorecomp_BanjoSDLActivity_nativeOnGpuDriverImported invoked");
+
+    const std::string error = android_jstring_to_string(env, error_string);
+    if (!error.empty()) {
+        __android_log_print(ANDROID_LOG_WARN, "BanjoGpuDriver",
+            "JNI Java_io_github_banjorecomp_BanjoSDLActivity_nativeOnGpuDriverImported reported import failure: %s",
+            error.c_str());
+        auto status = banjo::android::custom_driver::get_runtime_status();
+        if (error == "GPU driver import cancelled") {
+            status.message = "GPU driver import cancelled; selection unchanged";
+        } else {
+            status.message = "GPU driver import failed: " + error + "; selection unchanged";
+        }
+        banjo::android::custom_driver::set_runtime_status(std::move(status));
+        refresh_android_driver_settings();
+        return;
+    }
+
+    banjo::android::custom_driver::Selection selection{};
+    selection.mode = banjo::android::custom_driver::Mode::Custom;
+    selection.driver_id = android_jstring_to_string(env, driver_id_string);
+    selection.display_name = android_jstring_to_string(env, display_name_string);
+    selection.driver_dir = android_jstring_to_string(env, driver_dir_string);
+    selection.driver_soname = android_jstring_to_string(env, driver_soname_string);
+
+    if (selection.driver_id.empty() || selection.driver_dir.empty() || selection.driver_soname.empty()) {
+        __android_log_print(ANDROID_LOG_WARN, "BanjoGpuDriver",
+            "GPU driver import callback missing required fields; ignoring selection");
+        auto status = banjo::android::custom_driver::get_runtime_status();
+        status.message = "GPU driver import failed: importer returned incomplete metadata; selection unchanged";
+        banjo::android::custom_driver::set_runtime_status(std::move(status));
+        refresh_android_driver_settings();
+        return;
+    }
+
+    std::string save_error;
+    if (!banjo::android::custom_driver::save_selection(selection, &save_error)) {
+        __android_log_print(ANDROID_LOG_ERROR, "BanjoGpuDriver",
+            "JNI Java_io_github_banjorecomp_BanjoSDLActivity_nativeOnGpuDriverImported failed to save imported GPU driver selection: %s",
+            save_error.c_str());
+        auto status = banjo::android::custom_driver::get_runtime_status();
+        status.message = "GPU driver import failed: " + save_error + "; selection unchanged";
+        banjo::android::custom_driver::set_runtime_status(std::move(status));
+        refresh_android_driver_settings();
+        return;
+    }
+
+    auto status = banjo::android::custom_driver::get_runtime_status();
+    status.selection = selection;
+    status.message = "Custom driver selected; restart required";
+    banjo::android::custom_driver::set_runtime_status(std::move(status));
+    refresh_android_driver_settings();
+
+    __android_log_print(ANDROID_LOG_INFO, "BanjoGpuDriver",
+        "Imported GPU driver selection id=%s dir=%s soname=%s restart required",
+        selection.driver_id.c_str(), selection.driver_dir.c_str(), selection.driver_soname.c_str());
+}
+#endif
 #endif
 
 const std::string version_string = "1.0.1";
@@ -866,6 +1022,11 @@ int banjo_recomp_main(int argc, char** argv) {
         }
     }
 #endif
+#if defined(BANJO_ANDROID_CUSTOM_DRIVER_MANAGER)
+    banjo::android::custom_driver::log_environment();
+    plume::SetVulkanLoaderInitializeCallback(initialize_android_vulkan_loader);
+    plume::SetVulkanPhysicalDeviceObserver(observe_android_vulkan_device);
+#endif
 
     recomp::Version project_version{};
     if (!recomp::Version::from_string(version_string, project_version)) {
@@ -995,6 +1156,15 @@ int banjo_recomp_main(int argc, char** argv) {
 
     recompinput::players::set_single_player_mode(true);
 
+#if defined(BANJO_ANDROID_CUSTOM_DRIVER_MANAGER)
+    recompui::config::graphics::set_driver_settings_provider(make_android_driver_settings_provider());
+#endif
+#if defined(__ANDROID__)
+    banjo::android::save_storage::register_frontend_provider();
+    // banjo::init_config() creates the other tabs and finalizes configuration,
+    // so the Android-only save tab must be created before that call.
+    recompui::config::create_save_management_tab();
+#endif
     banjo::init_config();
 
     recompui::register_launcher_init_callback(on_launcher_init);
@@ -1094,6 +1264,27 @@ int banjo_recomp_main(int argc, char** argv) {
 
 #if defined(__ANDROID__)
 extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char** argv) {
+#if defined(BANJO_ANDROID_VULKAN_SMOKE_PROBE)
+    auto enabled_value = []() -> std::string {
+        if (const char* env = std::getenv("BANJO_ANDROID_VULKAN_SMOKE_PROBE"); env != nullptr) {
+            return env;
+        }
+        char prop[PROP_VALUE_MAX] = {};
+        if (__system_property_get("debug.banjo.vulkan_smoke_probe", prop) > 0) {
+            return prop;
+        }
+        if (const char* mode = std::getenv("BANJO_ANDROID_VULKAN_SMOKE_PROBE_MODE"); mode != nullptr && mode[0] != '\0') {
+            return "1";
+        }
+        if (__system_property_get("debug.banjo.vulkan_smoke_probe_mode", prop) > 0 && prop[0] != '\0') {
+            return "1";
+        }
+        return {};
+    }();
+    if (!enabled_value.empty() && enabled_value != "0" && enabled_value != "false" && enabled_value != "FALSE") {
+        return android_vulkan_smoke_main();
+    }
+#endif
     return banjo_recomp_main(argc, argv);
 }
 #endif

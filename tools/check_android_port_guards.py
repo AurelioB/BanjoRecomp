@@ -40,6 +40,9 @@ def main() -> int:
     android_gradle = read("android/app/build.gradle")
     android_readme = read("android/README.md")
     android_findings = read("docs/android-port-findings.md")
+    save_activity = read("android/app/src/main/java/io/github/banjorecomp/BanjoSDLActivity.java")
+    save_bridge = read("src/android/save_storage_manager.cpp")
+    save_runtime = read("lib/N64ModernRuntime/librecomp/src/pi.cpp")
 
     require('#include "nfd.h"' in main_cpp, "main.cpp should still include NFD for desktop builds")
     require_regex(
@@ -98,17 +101,33 @@ def main() -> int:
     require("validateAndroidBuildEnvironment" in android_gradle, "Gradle build must keep fail-fast Android environment validation")
     require("ANDROID_NDK_HOME" in android_gradle and "BANJO_ANDROID_SDL2_PREFIX" in android_gradle and "BANJO_ANDROID_FREETYPE_PREFIX" in android_gradle, "Gradle validation must name SDK/NDK and native dependency prefixes")
     require("RecompiledFuncs" in android_gradle and "rsp/n_aspMain.cpp" in android_gradle and "RecompiledPatches/patches.c" in android_gradle, "Gradle validation must check generated runtime sources")
+    require("delete layout.buildDirectory.get().asFile" in android_gradle and "delete file('.cxx')" in android_gradle, "Gradle clean must remove stale Android build/.cxx state after externalNativeBuild clean")
     require("BANJO_ANDROID_BASEROM" in android_gradle and "BANJO_ANDROID_DECOMPRESSED_ROM" in android_gradle and "banjoDevRomDir" in android_gradle, "Gradle dev-ROM inputs must be overrideable without copying private files into the repo")
     require("buildConfigField 'boolean', 'BANJO_BUNDLE_DEV_ROMS', banjoBundleDevRoms.toString()" in android_gradle, "Gradle must expose the dev-ROM packaging flag to Android Java")
     require("BuildConfig.BANJO_BUNDLE_DEV_ROMS && bundledDevRom.isFile()" in read("android/app/src/main/java/io/github/banjorecomp/BanjoSDLActivity.java"), "Android Java RECOMP_AUTO_ROM_PATH setup must be gated behind BANJO_BUNDLE_DEV_ROMS")
     require("#if !defined(__ANDROID__) || defined(BANJO_ANDROID_DEV_FULL_APK)" in read("lib/RecompFrontend/recompui/src/base/ui_launcher.cpp"), "Android native RECOMP_AUTO_ROM_PATH consumption must be gated behind BANJO_ANDROID_DEV_FULL_APK")
     require("/usr/lib/llvm-19/bin" in android_readme and "system `gradle`" in android_readme, "Android README must document system Gradle and host LLVM path expectations")
-    require("Android app-private path policy" in android_readme and "APP_PROGRAM_PATH" in android_readme and "APP_FOLDER_PATH" in android_readme, "Android README must document app-private path policy")
-    require("validateAndroidBuildEnvironment" in android_findings and "Android app-private path policy" in android_findings, "Android findings must document validation and path policy changes")
+    require("app-private" in android_readme and "APP_PROGRAM_PATH" in android_readme and "APP_FOLDER_PATH" in android_readme, "Android README must document app-private path policy")
+    require("validateAndroidBuildEnvironment" in android_findings and "app-private" in android_findings, "Android findings must document validation and path policy changes")
+
+    require("hydrateInternalSaveFromSelectedFolder(appDataDir)" in save_activity,
+            "Android startup must hydrate the internal mirror from the authoritative SAF save")
+    require("private static final long BANJO_SAVE_SIZE = 0x800L;" in save_activity,
+            "Android external saves must retain exact Banjo EEP16K validation")
+    require("Intent.ACTION_OPEN_DOCUMENT_TREE" in save_activity and "takePersistableUriPermission" in save_activity,
+            "custom save folders must use persistable Storage Access Framework trees")
+    require("Executors.newSingleThreadExecutor()" in save_activity,
+            "save document/provider I/O must remain off the UI thread and serialized")
+    require("ultramodern::snapshot_save_file(snapshot)" in save_bridge and "ultramodern::import_save_file(data)" in save_bridge,
+            "Android save JNI must use transactional runtime snapshot/import APIs")
+    require("control_requested_generation" in save_runtime and "control_acknowledged_generation" in save_runtime
+            and "control_released_generation" in save_runtime,
+            "runtime save transactions must retain generation-safe worker coordination")
 
     require("CMAKE_SYSTEM_NAME MATCHES \"Linux|Android\"" in rt64_cmake, "RT64 must enable SDL Vulkan path for Android as well as Linux")
     require("add_compile_definitions(\"PLUME_SDL_VULKAN_ENABLED\")" in rt64_cmake, "RT64 must define PLUME_SDL_VULKAN_ENABLED")
     require("add_compile_definitions(\"RT64_SDL_WINDOW_VULKAN\")" in rt64_cmake, "RT64 must define RT64_SDL_WINDOW_VULKAN")
+    require("rt64_generated_shader_outputs" in rt64_cmake, "RT64 must order generated shader headers before compiling sources that include them")
 
     require("class NullRendererContext final" in null_renderer_cpp, "Android target must define a stub/null renderer context")
     require("create_null_renderer_context" in null_renderer_header, "Android null renderer must expose a factory")

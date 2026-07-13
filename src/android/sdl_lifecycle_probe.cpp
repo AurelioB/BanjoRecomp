@@ -57,6 +57,7 @@ extern "C" __attribute__((visibility("default"))) void Java_io_github_banjorecom
     __android_log_print(ANDROID_LOG_VERBOSE, kLogTag, "audio active=%d", active ? 1 : 0);
 }
 
+#if !defined(BANJO_ANDROID_VULKAN_SMOKE_PROBE_STANDALONE)
 extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char** argv) {
     (void)argc;
     (void)argv;
@@ -112,3 +113,4 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char** 
     __android_log_print(ANDROID_LOG_INFO, kLogTag, "SDL lifecycle probe completed");
     return 0;
 }
+#endif

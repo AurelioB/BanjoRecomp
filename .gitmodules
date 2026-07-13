@@ -13,3 +13,6 @@
 [submodule "lib/RecompFrontend"]
 	path = lib/RecompFrontend
 	url = https://github.com/AurelioB/RecompFrontend.git
+[submodule "lib/adrenotools"]
+	path = lib/adrenotools
+	url = https://github.com/bylaws/libadrenotools.git

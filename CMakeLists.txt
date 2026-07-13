@@ -52,6 +52,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Android")
     option(BANJO_ANDROID_RUNTIME_APK "Build the real Android runtime as SDLActivity libmain.so." ON)
     option(BANJO_ANDROID_DEV_FULL_APK "Enable dev-only behavior for local Android APKs with bundled ROM assets." OFF)
     option(BANJO_ANDROID_VULKAN_SMOKE_PROBE "Compile the Android Vulkan smoke probe diagnostic into full Android builds." OFF)
+    option(BANJO_ANDROID_CUSTOM_VULKAN_DRIVER "Enable Android custom Vulkan driver support through AdrenoTools." ON)
 else()
     option(BANJO_ANDROID_SHELL_ONLY "Compatibility flag for the Android SDL lifecycle probe; the legacy text-view shell target is retired." OFF)
     option(BANJO_ANDROID_RENDERER_STUB "Use a no-op renderer context for Android probe builds." OFF)
@@ -59,6 +60,20 @@ else()
     option(BANJO_ANDROID_RUNTIME_APK "Build the real Android runtime as SDLActivity libmain.so." OFF)
     option(BANJO_ANDROID_DEV_FULL_APK "Enable dev-only behavior for local Android APKs with bundled ROM assets." OFF)
     option(BANJO_ANDROID_VULKAN_SMOKE_PROBE "Compile the Android Vulkan smoke probe diagnostic into full Android builds." OFF)
+    option(BANJO_ANDROID_CUSTOM_VULKAN_DRIVER "Enable Android custom Vulkan driver support through AdrenoTools." OFF)
+endif()
+
+if (BANJO_ANDROID_CUSTOM_VULKAN_DRIVER)
+    if (NOT CMAKE_SYSTEM_NAME MATCHES "Android")
+        message(FATAL_ERROR "BANJO_ANDROID_CUSTOM_VULKAN_DRIVER is only supported for Android builds.")
+    endif()
+
+    set(BANJO_ADRENOTOOLS_DIR "${CMAKE_SOURCE_DIR}/lib/adrenotools" CACHE PATH "Path to libadrenotools checkout.")
+    if (NOT EXISTS "${BANJO_ADRENOTOOLS_DIR}/CMakeLists.txt" OR
+        NOT EXISTS "${BANJO_ADRENOTOOLS_DIR}/include/adrenotools/driver.h" OR
+        NOT EXISTS "${BANJO_ADRENOTOOLS_DIR}/lib/linkernsbypass/CMakeLists.txt")
+        message(FATAL_ERROR "BANJO_ANDROID_CUSTOM_VULKAN_DRIVER=ON requires libadrenotools with its nested liblinkernsbypass submodule at ${BANJO_ADRENOTOOLS_DIR}. Run: git submodule update --init --recursive lib/adrenotools")
+    endif()
 endif()
 
 if (BANJO_ANDROID_SHELL_ONLY)
@@ -78,6 +93,29 @@ if (BANJO_ANDROID_SHELL_ONLY)
     target_include_directories(main PRIVATE ${SDL2_INCLUDE_DIRS})
     target_link_libraries(main PRIVATE SDL2::SDL2 android log)
 
+    if (BANJO_ANDROID_VULKAN_SMOKE_PROBE)
+        target_sources(main PRIVATE
+            ${CMAKE_SOURCE_DIR}/src/android/vulkan_smoke_probe.cpp
+            ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/plume/contrib/volk/volk.c
+        )
+        target_compile_definitions(main PRIVATE
+            BANJO_ANDROID_VULKAN_SMOKE_PROBE=1
+            BANJO_ANDROID_VULKAN_SMOKE_PROBE_STANDALONE=1
+        )
+        target_include_directories(main PRIVATE
+            ${CMAKE_SOURCE_DIR}/src/android
+            ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib
+            ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/plume/contrib/volk
+            ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/plume/contrib/Vulkan-Headers/include
+        )
+        if (BANJO_ANDROID_CUSTOM_VULKAN_DRIVER)
+            add_subdirectory(${BANJO_ADRENOTOOLS_DIR} ${CMAKE_BINARY_DIR}/adrenotools)
+            target_sources(main PRIVATE ${CMAKE_SOURCE_DIR}/src/android/custom_driver_manager.cpp)
+            target_compile_definitions(main PRIVATE BANJO_ANDROID_CUSTOM_DRIVER_MANAGER=1 BANJO_ANDROID_CUSTOM_VULKAN_DRIVER=1)
+            target_link_libraries(main PRIVATE adrenotools)
+        endif()
+    endif()
+
     return()
 endif()
 
@@ -92,6 +130,10 @@ endif()
 add_subdirectory(${CMAKE_SOURCE_DIR}/lib/rt64 ${CMAKE_BINARY_DIR}/rt64)
 
 set(BUILD_SHARED_LIBS OFF)
+
+if (BANJO_ANDROID_CUSTOM_VULKAN_DRIVER)
+    add_subdirectory(${BANJO_ADRENOTOOLS_DIR} ${CMAKE_BINARY_DIR}/adrenotools)
+endif()
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime)
 
@@ -143,38 +185,43 @@ target_sources(PatchesLib PRIVATE
 
 set_source_files_properties(${CMAKE_SOURCE_DIR}/RecompiledPatches/patches.c PROPERTIES COMPILE_FLAGS -fno-strict-aliasing)
 
-# Build patches elf
-if(NOT DEFINED PATCHES_C_COMPILER)
-    set(PATCHES_C_COMPILER clang)
+# Build/regenerate patch sources for desktop/native builds. Android Gradle
+# builds treat RecompiledPatches as prepared source inputs because CMake/Ninja
+# clean deletes files declared as generated OUTPUTs, which makes
+# :app:clean followed by :app:assembleDebug non-reproducible.
+if (NOT CMAKE_SYSTEM_NAME MATCHES "Android")
+    if(NOT DEFINED PATCHES_C_COMPILER)
+        set(PATCHES_C_COMPILER clang)
+    endif()
+
+    if(NOT DEFINED PATCHES_LD)
+        set(PATCHES_LD ld.lld)
+    endif()
+
+    add_custom_target(PatchesBin
+        COMMAND ${CMAKE_COMMAND} -E env CC=${PATCHES_C_COMPILER} LD=${PATCHES_LD} make
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/patches
+        BYPRODUCTS ${CMAKE_SOURCE_DIR}/patches/patches.elf
+    )
+
+    # Generate patches_bin.c from patches.bin
+    add_custom_command(OUTPUT ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.c
+        COMMAND file_to_c ${CMAKE_SOURCE_DIR}/patches/patches.bin bk_patches_bin ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.c ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.h
+        DEPENDS ${CMAKE_SOURCE_DIR}/patches/patches.bin
+    )
+
+    # Recompile patches elf into patches.c and patches.bin
+    add_custom_command(OUTPUT
+                           ${CMAKE_SOURCE_DIR}/patches/patches.bin
+                           ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches.c
+                           ${CMAKE_SOURCE_DIR}/RecompiledPatches/recomp_overlays.inl
+                           ${CMAKE_SOURCE_DIR}/RecompiledPatches/funcs.h
+                       # TODO: Look into why modifying patches requires two builds to take
+                       COMMAND ./N64Recomp patches.toml
+                       WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                       DEPENDS ${CMAKE_SOURCE_DIR}/patches/patches.elf
+    )
 endif()
-
-if(NOT DEFINED PATCHES_LD)
-    set(PATCHES_LD ld.lld)
-endif()
-
-add_custom_target(PatchesBin
-    COMMAND ${CMAKE_COMMAND} -E env CC=${PATCHES_C_COMPILER} LD=${PATCHES_LD} make
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/patches
-    BYPRODUCTS ${CMAKE_SOURCE_DIR}/patches/patches.elf
-)
-
-# Generate patches_bin.c from patches.bin
-add_custom_command(OUTPUT ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.c
-    COMMAND file_to_c ${CMAKE_SOURCE_DIR}/patches/patches.bin bk_patches_bin ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.c ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches_bin.h
-    DEPENDS ${CMAKE_SOURCE_DIR}/patches/patches.bin
-)
-
-# Recompile patches elf into patches.c and patches.bin
-add_custom_command(OUTPUT
-                       ${CMAKE_SOURCE_DIR}/patches/patches.bin
-                       ${CMAKE_SOURCE_DIR}/RecompiledPatches/patches.c
-                       ${CMAKE_SOURCE_DIR}/RecompiledPatches/recomp_overlays.inl
-                       ${CMAKE_SOURCE_DIR}/RecompiledPatches/funcs.h
-                   # TODO: Look into why modifying patches requires two builds to take
-                   COMMAND ./N64Recomp patches.toml
-                   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-                   DEPENDS ${CMAKE_SOURCE_DIR}/patches/patches.elf
-)
 
 # Main executable / Android SDLActivity shared library.
 if (CMAKE_SYSTEM_NAME MATCHES "Android" AND BANJO_ANDROID_RUNTIME_APK)
@@ -438,6 +485,20 @@ target_sources(${BANJO_RECOMP_TARGET} PRIVATE ${SOURCES})
 
 if (CMAKE_SYSTEM_NAME MATCHES "Android" AND BANJO_ANDROID_VULKAN_SMOKE_PROBE)
     target_sources(${BANJO_RECOMP_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/src/android/vulkan_smoke_probe.cpp)
+    target_compile_definitions(${BANJO_RECOMP_TARGET} PRIVATE BANJO_ANDROID_VULKAN_SMOKE_PROBE=1)
+endif()
+
+if (CMAKE_SYSTEM_NAME MATCHES "Android" AND BANJO_ANDROID_RUNTIME_APK)
+    target_sources(${BANJO_RECOMP_TARGET} PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/android/custom_driver_manager.cpp
+        ${CMAKE_SOURCE_DIR}/src/android/save_storage_manager.cpp
+    )
+    target_compile_definitions(${BANJO_RECOMP_TARGET} PRIVATE BANJO_ANDROID_CUSTOM_DRIVER_MANAGER=1)
+    if (BANJO_ANDROID_CUSTOM_VULKAN_DRIVER)
+        target_compile_definitions(${BANJO_RECOMP_TARGET} PRIVATE BANJO_ANDROID_CUSTOM_VULKAN_DRIVER=1)
+        target_link_libraries(${BANJO_RECOMP_TARGET} PRIVATE adrenotools)
+        add_dependencies(${BANJO_RECOMP_TARGET} main_hook file_redirect_hook gsl_alloc_hook hook_impl)
+    endif()
 endif()
 
 if (BANJO_ANDROID_RENDERER_STUB)
