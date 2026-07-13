@@ -18,6 +18,12 @@
 
 Designed with Android handhelds in mind. Tested on the AYN Thor.
 
+### Android save management
+
+The Android settings include a **Save Management** page for importing and exporting the active Banjo-Kazooie save and selecting an Android DocumentsUI folder for synchronized storage. The game keeps an app-private runtime copy for native I/O; when a folder is selected, its `banjo-kazooie.bin` document is authoritative across launches and the app writes a safe snapshot back when it pauses.
+
+Selecting an empty destination copies the existing save into it. A destination containing a recognized Banjo save or backup is never overwritten automatically; import that file explicitly if it should replace the active save. See [Android save storage](docs/plans/android-save-storage.md) for backup and failure behavior.
+
 ### Dual-screen companion display
 
 On supported devices, the second screen becomes a live companion display, including:

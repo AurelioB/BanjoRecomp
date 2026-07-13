@@ -367,3 +367,21 @@ Verification:
 
 Manual user check still recommended:
 - Confirm by ear that static is gone after task switcher/sleep/resume. ADB cannot verify audio quality directly.
+
+## Android clean-build generated-source handling
+
+Issue fixed:
+- `gradle --no-daemon -p android :app:clean` could remove source-tree `RecompiledPatches/patches.c` / `patches_bin.c` because top-level CMake declared those ignored files as generated `OUTPUT`s. A later `:app:assembleDebug` then failed in `:app:validateAndroidBuildEnvironment` before native build could regenerate them.
+
+Implemented behavior:
+- Android CMake now treats `RecompiledPatches/` as prepared source inputs and does not register the patch-regeneration custom commands for Android builds. Desktop/native builds keep the existing CMake patch-regeneration path.
+- The documented Android runtime build flow runs `tools/ci/prepare_android_generated_sources.sh runtime` before guard/build commands; the script is idempotent when generated sources are already present.
+
+Verification:
+- `gradle --no-daemon -p android :app:clean` no longer deletes `RecompiledPatches/patches.c` or `RecompiledPatches/patches_bin.c` from the source tree.
+- `gradle --no-daemon -p android :app:assembleDebug` completes after the clean step with the prepared generated sources still present.
+
+Follow-up clean-build fix:
+- A later clean/assemble rerun exposed separate clean-state hazards: RT64 C++ sources could compile before CMake-generated shader headers such as `src/shaders/RenderParams.hlsli.rw.h` existed, AGP could leave stale/corrupt Ninja state under `android/app/.cxx` after `:app:clean`, and stale package output could cause APK packaging to fail with duplicate `META-INF/com/android/build/gradle/app-metadata.properties` entries.
+- RT64 CMake now collects generated shader `.c`/`.h` outputs into an explicit `rt64_generated_shader_outputs` target and makes `rt64` depend on it, so sources that include generated shader headers do not race those custom commands in a fresh Android build tree.
+- Gradle `:app:clean` now deletes `android/app/build` and `android/app/.cxx` after external native clean completes. This forces the next `:app:assembleDebug` to configure/package from a fresh Android build tree while preserving source-tree prepared inputs such as `RecompiledPatches/patches.c`, `RecompiledPatches/patches_bin.c`, and `rsp/n_aspMain.cpp`.

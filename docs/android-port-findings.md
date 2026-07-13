@@ -46,16 +46,39 @@ For distributable GitHub Actions APKs, see `docs/android-apk-distribution.md`.
 - `-PbanjoProbe=true` builds the SDLActivity lifecycle probe: `BanjoSDLActivity` + `libmain.so` from `src/android/sdl_lifecycle_probe.cpp`. It is diagnostic-only and not playable.
 - The old text-view `MainActivity` / `BanjoAndroidShell` native-load diagnostic has been retired and is not a supported Gradle build mode.
 
-## Android app-private path policy
+## Android runtime path policy
 
 All Android runtime-writable paths should stay under the app sandbox. Do not add Android branches that fall through to desktop Linux `$HOME`, `getpwuid()`, or `.config` paths.
 
 - APK `assets/program/` is copied by `BanjoSDLActivity` into `files/program/`; Java sets `APP_PROGRAM_PATH` to that app-private directory before native startup.
 - Java sets `APP_FOLDER_PATH` to `files/data/`; RecompFrontend uses that as the root for config, mod installs/config, ROM imports, and saves.
 - Imported ROMs are copied under `files/data/roms/` by the DocumentsUI bridge before native code receives the selected path.
-- Saves live under `files/data/saves/`.
+- Native saves live under `files/data/saves/`. When the user selects an SAF folder, this is a runtime mirror: the selected `banjo-kazooie.bin` document is authoritative across launches and is synchronized on pause.
 - RecompFrontend `get_program_path()` uses `APP_PROGRAM_PATH` first and only falls back to `SDL_AndroidGetInternalStoragePath()` as an Android safety net.
 - RT64 Android user paths use `SDL_AndroidGetInternalStoragePath()` in `rt64_user_paths.cpp`; they must remain app-private and must not use the desktop Linux home-directory branch on Android.
+
+## Custom Vulkan driver support
+
+- Custom graphics driver support is Android-only, experimental, and Adreno/Turnip-focused. The default remains Android's system Vulkan driver.
+- Users import driver ZIPs through `BanjoSDLActivity`/DocumentsUI. The app copies them into cache, extracts validated entries under app-private `files/gpu-drivers/imports/<driver-id>/`, and persists only active selection metadata in `files/gpu-drivers/active.json`.
+- Valid driver packages must contain an `arm64-v8a` Vulkan driver soname such as `libvulkan_freedreno.so`, `vulkan.freedreno.so`, or `libvulkan.so`. Unsafe ZIP entries, wrong-ABI-only packages, and missing-soname packages are rejected and cleaned up.
+- Switching or resetting a custom driver requires an app restart. The Graphics settings rows `Graphics Driver` and `Loaded Driver Details` report runtime loader state, fallback messages, and Vulkan physical-device name/vendor/device/driverVersion.
+- Safe-mode launch command:
+
+```sh
+adb shell am start -n com.aure.banjorecomp/io.github.banjorecomp.BanjoSDLActivity --ez banjo_force_system_driver true
+```
+
+- Driver diagnostics log under `BanjoGpuDriver`; smoke-probe diagnostics log under `BanjoVkSmoke`. Useful filter:
+
+```sh
+adb logcat -d | grep -E 'BanjoGpuDriver|BanjoVkSmoke|Adreno|Turnip|Vulkan|Device Name|Driver Version|Loaded:'
+```
+
+- Default/release APKs must not bundle Turnip/custom driver packages or imported `gpu-drivers` contents. With custom-driver support enabled, APKs may package the app support library `libadrenotools.so`; user-supplied driver blobs must remain outside the APK.
+- Current evidence keeps the existing SDL Vulkan surface path for both system and custom-loader modes. Do not add raw `ANativeWindow`/`vkCreateAndroidSurfaceKHR` plumbing unless the same-APK smoke probe shows SDL/custom-loader failure or system-loader binding.
+- The driver directory passed to AdrenoTools must have exactly one trailing separator. The missing-separator defect has been fixed and covered offline, but real arm64 Adreno Turnip presentation/gameplay proof remains pending.
+- `Reset to System Driver` clears selection and preserves imported packages. No imported-driver removal action exists yet.
 
 ## Runtime APK and ROM loading
 
@@ -101,6 +124,8 @@ adb exec-out "run-as io.github.banjorecomp cat files/data/saves/bk.n64.us.1.0.bi
 ```
 
 Use `adb install -r` for APK replacement to preserve app-private data.
+
+Save Management uses N64ModernRuntime's quiesced snapshot/import operations and Android DocumentsUI. Import/export operate on exact-size raw saves. A selected tree is persisted only after the current save has been copied into an empty destination; recognized save/backup collisions abort without overwrite. At startup the external document refreshes the app-private runtime mirror atomically, preserving the displaced copy as `.pre-external*.bak`; on pause the mirror is snapshotted back. Revoked/unavailable providers retain the internal copy and report failure. Reset disables synchronization without deleting either copy.
 
 ## RT64 idle/performance findings
 

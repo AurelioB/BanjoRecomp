@@ -8,6 +8,12 @@
 
 **Tech Stack:** Android Java `BanjoSDLActivity`, JNI, C++17/20, Gradle/NDK, SDL2, Vulkan/volk, RT64/Plume, libadrenotools, existing recompui config UI.
 
+## Implementation status
+
+The import, selection, runtime status, fallback, safe-mode, and reset paths are implemented. The custom-loader directory is normalized with a trailing separator before AdrenoTools joins it to the driver soname, fixing the earlier `arm64-v8alibvulkan_freedreno.so` failure. Offline import tests, guard checks, and an arm64 APK build pass.
+
+This is not yet live-device proof of Turnip support. A real arm64 Adreno device still needs to demonstrate custom-loader success, SDL surface and swapchain presentation, gameplay, suspend/resume, and dual-screen operation. **Reset to System Driver** preserves imported packages; deletion/removal of installed drivers remains unimplemented.
+
 ---
 
 ## Current repo facts this plan depends on
@@ -372,6 +378,12 @@ Under Graphics, Android-only:
 - Select opens DocumentsUI.
 - Reset clears selection and shows restart-required status.
 
+**Implementation note (2026-07-05):**
+
+- Added reusable `ConfigOptionInfo` and `ConfigOptionAction` rows in `librecomp`/`recompui` so the Android Graphics settings can show read-only status/details and real action buttons instead of editable text fields.
+- Added Android-gated Graphics rows for `Graphics Driver`, `Select Custom Driver...`, `Reset to System Driver`, `Loaded Driver Details`, and restart-required state. These call the native custom-driver picker/reset/status helpers and are hidden from non-Android builds by `BANJO_ANDROID_CUSTOM_DRIVER_UI`.
+- Offline verification: guard checks and debug APK build pass; APK `libmain.so` contains the UI/action strings and normal APK hygiene checks found no bundled ROM/custom-driver blobs. Device install of this debug APK was not performed because the connected device already had `com.aure.banjorecomp` signed with an incompatible key, and preserving app data was required.
+
 ---
 
 ## Task 6: Add AdrenoTools dependency behind Android build option
@@ -427,11 +439,14 @@ In `VulkanInterface::VulkanInterface(...)`, replace unconditional Android `volkI
 
 ```cpp
 #if defined(__ANDROID__) && defined(BANJO_ANDROID_CUSTOM_VULKAN_DRIVER)
-VkResult res = banjo::android::custom_driver::initialize_vulkan_loader_for_volk();
+VkResult res = static_cast<VkResult>(
+    banjo::android::custom_driver::initialize_vulkan_loader_for_volk());
 #else
 VkResult res = volkInitialize();
 #endif
 ```
+
+Keep `custom_driver_manager.hpp` independent from Plume/volk/Vulkan headers; expose the helper as an integer status and cast back to `VkResult` only at the Plume call site.
 
 `initialize_vulkan_loader_for_volk()` should:
 
@@ -473,6 +488,8 @@ volkInitializeCustom(gipa);
 - With no driver selected, app logs `custom driver disabled; using system Vulkan`.
 - With invalid selected driver, app logs fallback and still launches.
 - With real Turnip driver selected, app logs custom load success or a clear failure reason.
+
+**Implementation note (2026-07-05):** Plume now calls the Android custom-driver loader before `vkCreateInstance` when `BANJO_ANDROID_CUSTOM_VULKAN_DRIVER` is enabled. The helper uses AdrenoTools + `volkInitializeCustom` for selected custom drivers, records `LoadedCustom`/`FallbackSystem` runtime status, and falls back to `volkInitialize()` on missing env, bad handles, or missing `vkGetInstanceProcAddr`. Offline verification covered source order, guard checks, APK symbol/string scans, and invalid-driver import fixtures; device install on the known AYN Thor was blocked by signature mismatch with the already-installed package, so live no-selection/fallback logcat remains a device-only follow-up.
 
 ---
 
@@ -518,6 +535,8 @@ adb logcat -d | grep -E 'BanjoGpuDriver|Device Name|Driver Version|Loaded:'
 
 Expected: log lines identify selected/fallback state and physical device.
 
+**Implementation note (2026-07-05):** Plume now records the selected `VkPhysicalDeviceProperties` into Android `RuntimeStatus` immediately after `vkGetPhysicalDeviceProperties(physicalDevice, ...)`. `BanjoGpuDriver` logcat includes selected physical-device name/vendor/device/driverVersion plus `Loaded:` state, and the Graphics UI details row reads the same RuntimeStatus fields.
+
 ---
 
 ## Task 9: Add same-APK Vulkan smoke probe for system vs custom driver
@@ -549,6 +568,8 @@ Expected: log lines identify selected/fallback state and physical device.
 - Custom mode either passes with Turnip or fails with a specific loader/surface error.
 - If custom loader passes smoke probe but RT64 fails, debug RT64/Plume separately.
 
+**Implementation note (2026-07-05):** `src/android/vulkan_smoke_probe.cpp` now supports `system`, `selected`, and `custom` probe modes via `BANJO_ANDROID_VULKAN_SMOKE_PROBE_MODE` or Android property `debug.banjo.vulkan_smoke_probe_mode`. Runtime APKs compiled with `-DBANJO_ANDROID_VULKAN_SMOKE_PROBE=ON` enter the probe only when `BANJO_ANDROID_VULKAN_SMOKE_PROBE`, `debug.banjo.vulkan_smoke_probe`, or a probe mode is set; probe APKs can build a standalone same-APK smoke app with `gradle --no-daemon -p android -PbanjoProbe=true -PbanjoCustomVulkanDriver=true -PbanjoVulkanSmokeProbe=true :app:assembleDebug`. The probe calls the same custom-driver loader helper as Plume, logs selected metadata and loader status, then logs instance extensions, physical device name/vendor/driverVersion, SDL surface creation, swapchain creation, and first clear/present result with `stage=...` tags. Local verification built the standalone smoke APK successfully and confirmed `BanjoVkSmoke`/`adrenotools_open_libvulkan`/stage strings in `libmain.so`; live device runs were blocked by existing installed package signature mismatch without uninstalling/preserving app data.
+
 ---
 
 ## Task 10: Decide whether SDL Vulkan surface path is compatible
@@ -576,6 +597,8 @@ Expected: log lines identify selected/fallback state and physical device.
   - keep normal SDL path for system driver and all desktop platforms
 
 **Do not do this until smoke-probe evidence says it is necessary.**
+
+**Decision note (2026-07-06):** No raw `ANativeWindow`/`vkCreateAndroidSurfaceKHR` fallback was added. Current evidence is insufficient to prove an SDL/custom-loader conflict: the same-APK smoke probe initializes volk through the same Android custom-driver helper as Plume, skips `SDL_Vulkan_LoadLibrary()` for selected/custom modes, and then exercises `SDL_Vulkan_GetInstanceExtensions()`, `SDL_Vulkan_CreateSurface()`, swapchain creation, and first clear/present with explicit `stage=...` logs. Local verification rebuilt the standalone custom-loader probe APK and confirmed the expected `BanjoVkSmoke`, `adrenotools_open_libvulkan`, `stage=sdl_surface`, `stage=swapchain`, and `stage=clear_present` strings in `libmain.so`. A connected device was present, but non-destructive install was blocked by `INSTALL_FAILED_VERSION_DOWNGRADE` against the existing package, so live system/custom Turnip comparison remains device-only evidence to collect once the installed package version/signature situation allows an update without clearing app data. Until such evidence shows failure or system-loader binding, keep the SDL Vulkan surface path for system and custom modes.
 
 ---
 
@@ -613,6 +636,8 @@ adb shell am start -n com.aure.banjorecomp/io.github.banjorecomp.BanjoSDLActivit
 - UI says fallback occurred.
 - Reset returns status to `System Default` after restart.
 
+**Implementation note (2026-07-05):** `BanjoSDLActivity` reads `--ez banjo_force_system_driver true`, sets `BANJO_FORCE_SYSTEM_DRIVER=1`, and logs the value with the other custom-driver environment variables. Native loader initialization checks that env flag before reading `active.json`; when set, it uses `volkInitialize()` with the system Vulkan loader and records a visible status message that the active custom selection was ignored. The Graphics reset action clears `active.json`, preserves imported driver files, and marks restart required. The safe-mode ADB command is documented in `android/README.md` and `docs/android-port.md`.
+
 ---
 
 ## Task 12: Documentation and release hygiene
@@ -639,6 +664,8 @@ adb logcat -c
 adb shell am start -n com.aure.banjorecomp/io.github.banjorecomp.BanjoSDLActivity
 adb logcat -d | grep -E 'BanjoGpuDriver|Adreno|Turnip|Vulkan|Device Name|Driver Version'
 ```
+
+**Implementation/status note (2026-07-06):** User-facing docs now cover the Graphics settings flow (`Select Custom Driver...`, restart requirement, loaded-driver details, and `Reset to System Driver`), safe-mode launch, logcat filters, and release hygiene. Local verification passed guard checks, GPU-driver import fixtures, default runtime APK build/scan, and standalone Vulkan smoke-probe APK build/string scan. The default APK is ROM-clean and custom-driver-blob-clean (`sha256 c18b56d79853db59902717fea1769575820567cc5cfecc4e77d7b0e90879d5df`, size 10,413,763 bytes, package `com.aure.banjorecomp`, launch activity `io.github.banjorecomp.BanjoSDLActivity`). The smoke-probe APK also builds (`sha256 0c243d32c4165ae55d01acb6343e77ba22202e72adab9e2bf51c42d59a34f847`) and contains `BanjoVkSmoke` plus `stage=sdl_surface`, `stage=swapchain`, and `stage=clear_present` markers. Live install of the current debug APK on the connected AYN Thor remains blocked non-destructively because the installed package is versionCode 101/signature `18b6c7e2`, while the local debug APK is versionCode 1 with a different signature; `adb install -r` reports `INSTALL_FAILED_VERSION_DOWNGRADE` and `adb install -r -d` reports `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Per save-preservation policy, do not uninstall/clear data just to test this build.
 
 ---
 
