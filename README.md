@@ -28,6 +28,7 @@ Selecting an empty destination copies the existing save into it. A destination c
 
 On supported devices, the second screen becomes a live companion display, including:
 
+- Double tap to toggle secondary display on/off.
 - Animated icons for game status and collectibles.
 - Dynamic backgrounds based on the current game area.
 - Live gameplay stats such as health, lives, notes, eggs, feathers, Jiggies, Mumbo tokens, Jinjos, and level context.
