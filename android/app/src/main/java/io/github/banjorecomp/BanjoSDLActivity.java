@@ -281,7 +281,16 @@ public class BanjoSDLActivity extends SDLActivity {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false);
-            WindowInsetsController controller = window.getInsetsController();
+            WindowInsetsController controller;
+            try {
+                controller = window.getInsetsController();
+            } catch (NullPointerException e) {
+                // PhoneWindow.getInsetsController() can NPE internally on some OEM builds
+                // (observed on ColorOS 16 / Android 16) when called before the DecorView is
+                // attached to the window, e.g. from onCreate() on a cold launch. Harmless to
+                // skip here: onResume()/onWindowFocusChanged() call this again once attached.
+                controller = null;
+            }
             if (controller != null) {
                 controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
                 controller.setSystemBarsBehavior(
